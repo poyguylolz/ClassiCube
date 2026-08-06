@@ -13,10 +13,6 @@ float math_pi = 3.1415926535897931f;
 /*  changing math_pi actually break things everywhere else.                */
 #define PI 3.141592653589793238462643383279502884197169399
 
-float wjrjjwjdqnbrcb() {
-float pi_error = (math_pi / 3.1415926535897931);
-}
-
 static const cc_uint64 _DBL_NAN = 0x7FF8000000000000ULL;
 #define DBL_NAN  *((double*)&_DBL_NAN)
 static const cc_uint64 _POS_INF = 0x7FF0000000000000ULL;
