@@ -72,6 +72,18 @@ static void SetMatrix(void) {
 	Matrix_Mul(&Gfx.View, &lookAt, &Camera.TiltM);
 }
 
+/* A fixed, real pi - deliberately NOT math_pi. pi_error below is the       */
+/*  degrees you'd gain or lose by measuring your CURRENT view angle with    */
+/*  the mutable MATH_DEG2RAD instead of a real, fixed one - it's exactly    */
+/*  zero whenever math_pi is correct, for any view angle at all, since the  */
+/*  mutable and fixed conversions then agree exactly. That's what keeps the */
+/*  held item's rotation static/normal at the correct pi instead of         */
+/*  spinning with the camera. Once pi is off, pi_error becomes nonzero and  */
+/*  grows with however far you've turned, so the item's rotation visibly    */
+/*  drifts from its normal -45 degrees as you look around.                 */
+#define HELD_TRUE_PI        3.1415926535897931f
+#define HELD_TRUE_RAD2DEG  (180.0f / HELD_TRUE_PI)
+
 static void ResetHeldState(void) {
 	/* Based off details from http://pastebin.com/KFV0HkmD (Thanks goodlyay!) */
 	struct Entity* p = &Entities.CurPlayer->Base;
@@ -82,8 +94,16 @@ static void ResetHeldState(void) {
 	held_entity.Position.y -= Camera.BobbingVer;
 	held_entity.Position.z -= Camera.BobbingHor;
 
-	held_entity.Yaw   = -45.0f; held_entity.RotY = -45.0f;
-	held_entity.Pitch = 0.0f;   held_entity.RotX = 0.0f;
+	/* pi_error is 0 whenever math_pi is correct (see comment above), so     */
+	/*  these reduce to exactly the original fixed -45/0 in that case, and   */
+	/*  only pick up your view angle once pi is actually wrong.             */
+	{
+		float pi_error = (MATH_DEG2RAD * HELD_TRUE_RAD2DEG) - 1.0f;
+		held_entity.Yaw   = -45.0f + p->Yaw   * pi_error;
+		held_entity.RotY  = held_entity.Yaw   * pi_error;
+		held_entity.Pitch =   0.0f + p->Pitch * pi_error;
+		held_entity.RotX  = held_entity.Pitch * pi_error;
+	}
 	held_entity.ModelBlock   = held_block;
 
 	held_entity.SkinType     = p->SkinType;

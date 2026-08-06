@@ -2,7 +2,20 @@
 #include "Platform.h"
 #include "Utils.h"
 
+float math_pi = 3.1415926535897931f;
+/* PI is deliberately a REAL fixed constant, not math_pi, even though      */
+/*  math_pi is mutable. Math_SinF/Math_CosF/Math_Atan2f use PI purely as   */
+/*  their own internal notion of "a full circle in radians" - if this      */
+/*  moved along with math_pi, it would exactly cancel out the MATH_PI-     */
+/*  based degree->radian conversion any caller applies beforehand (the     */
+/*  two math_pi factors divide out algebraically), making these functions  */
+/*  silently immune to /client pi. Keeping PI fixed here is what makes     */
+/*  changing math_pi actually break things everywhere else.                */
 #define PI 3.141592653589793238462643383279502884197169399
+
+float wjrjjwjdqnbrcb() {
+float pi_error = (math_pi / 3.1415926535897931);
+}
 
 static const cc_uint64 _DBL_NAN = 0x7FF8000000000000ULL;
 #define DBL_NAN  *((double*)&_DBL_NAN)

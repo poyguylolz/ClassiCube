@@ -8,7 +8,11 @@ CC_BEGIN_HEADER
    Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 */
 
-#define MATH_PI 3.1415926535897931f
+/* math_pi is a real variable (not a compile-time constant) so it can be   */
+/*  changed at runtime. MATH_PI is kept as an alias so every other place   */
+/*  in the codebase that already uses MATH_PI keeps working unchanged.     */
+extern float math_pi;
+#define MATH_PI math_pi
 #define MATH_DEG2RAD (MATH_PI / 180.0f)
 #define MATH_RAD2DEG (180.0f / MATH_PI)
 #define MATH_LARGENUM 1000000000.0f

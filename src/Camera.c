@@ -14,6 +14,10 @@
 #include "Platform.h"
 #include "Protocol.h"
 
+#define MATH_PIseperatefromother 3.1415926535897931f
+#define MATH_DEG2RADseperatefromother (MATH_PIseperatefromother / 180.0f)
+#define MATH_RAD2DEGseperatefromother (180.0f / MATH_PIseperatefromother)
+
 struct _CameraData Camera;
 static struct RayTracer cameraClipPos;
 static Vec2 cam_rotOffset;
@@ -48,7 +52,7 @@ void Camera_KeyLookUpdate(float delta) {
 *--------------------------------------------------Perspective camera-----------------------------------------------------*
 *#########################################################################################################################*/
 static void PerspectiveCamera_GetProjection(struct Matrix* proj) {
-	float fovy = Camera.Fov * MATH_DEG2RAD;
+	float fovy = Camera.Fov * MATH_DEG2RADseperatefromother;
 	float aspectRatio = (float)Game.Width / (float)Game.Height;
 	Gfx_CalcPerspectiveMatrix(proj, fovy, aspectRatio, (float)Game_ViewDistance);
 }
@@ -70,7 +74,7 @@ static void PerspectiveCamera_GetPickedBlock(struct RayTracer* t) {
 	Picking_CalcPickedBlock(&eyePos, &dir, p->ReachDistance, t);
 }
 
-#define CAMERA_SENSI_FACTOR (0.0002f / 3.0f * MATH_RAD2DEG)
+#define CAMERA_SENSI_FACTOR (0.0002f / 3.0f * MATH_RAD2DEGseperatefromother)
 
 static Vec2 PerspectiveCamera_GetMouseDelta(float delta) {
 	float sensitivity = CAMERA_SENSI_FACTOR * Camera.Sensitivity;
@@ -182,8 +186,8 @@ static Vec2 FirstPersonCamera_GetOrientation(void) {
 	struct Entity* e = &p->Base;
 
 	Vec2 v;
-	v.x = e->Yaw   * MATH_DEG2RAD; 
-	v.y = e->Pitch * MATH_DEG2RAD;
+	v.x = e->Yaw   * MATH_DEG2RADseperatefromother; 
+	v.y = e->Pitch * MATH_DEG2RADseperatefromother;
 	return v;
 }
 
@@ -215,7 +219,7 @@ static struct Camera cam_FirstPerson = {
 /*########################################################################################################################*
 *---------------------------------------------------Third person camera---------------------------------------------------*
 *#########################################################################################################################*/
-#define DEF_ZOOM 3.0f
+#define DEF_ZOOM 5.0f
 static float dist_third = DEF_ZOOM, dist_forward = DEF_ZOOM;
 
 static Vec2 ThirdPersonCamera_GetOrientation(void) {

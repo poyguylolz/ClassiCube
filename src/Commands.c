@@ -10,6 +10,7 @@
 #include "Entity.h"
 #include "Window.h"
 #include "Graphics.h"
+#include "ExtMath.h"
 #include "Funcs.h"
 #include "Block.h"
 #include "EnvRenderer.h"
@@ -797,6 +798,47 @@ static struct ChatCommand BlockEditCommand = {
 	}
 };
 
+/*########################################################################################################################*
+*--------------------------------------------------------------Pi-------------------------------------------------------*
+*#########################################################################################################################*/
+#define PI_DEFAULT_VALUE 3.14159265358979323846f
+
+static void Pi_Execute(const cc_string* args, int argsCount) {
+	extern float math_pi;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fPi is currently %f8", &math_pi);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		math_pi = PI_DEFAULT_VALUE;
+		Chat_AddRaw("&aPi has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v)) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid number.");
+		return;
+	}
+
+	if (v == 0.0f) v = 0.000001f;
+	math_pi = v;
+	Chat_Add1("&e/client: &fPi is now %f8", &math_pi);
+}
+
+static struct ChatCommand PiCommand = {
+	"Pi", Pi_Execute,
+	0,
+	{
+		"&a/client pi [value/reset]",
+		"&eChanges the value this client uses for pi in its math calculations.",
+		"&eRun with no arguments to see the current value.",
+		"&eUse &a/client pi reset &eto restore the original value.",
+	}
+};
+
 
 /*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
@@ -815,6 +857,7 @@ static void OnInit(void) {
 	Commands_Register(&BlockEditCommand);
 	Commands_Register(&CuboidCommand);
 	Commands_Register(&ReplaceCommand);
+	Commands_Register(&PiCommand);
 }
 
 static void OnFree(void) {
