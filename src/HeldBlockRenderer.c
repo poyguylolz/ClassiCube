@@ -100,9 +100,9 @@ static void ResetHeldState(void) {
 	{
 		float pi_error = (MATH_DEG2RAD * HELD_TRUE_RAD2DEG) - 1.0f;
 		held_entity.Yaw   = -45.0f + p->Yaw   * pi_error;
-		held_entity.RotY  = held_entity.Yaw   * pi_error;
+		held_entity.RotY  = held_entity.Yaw;
 		held_entity.Pitch =   0.0f + p->Pitch * pi_error;
-		held_entity.RotX  = held_entity.Pitch * pi_error;
+		held_entity.RotX  = held_entity.Pitch;
 	}
 	held_entity.ModelBlock   = held_block;
 
