@@ -62,20 +62,22 @@ jobs:
           cp $ROOT_DIR/cc-droid-x86_32 lib/x86/libclassicube.so
           cp $ROOT_DIR/cc-droid-x86_64 lib/x86_64/libclassicube.so
           
-          # The following commands are for manually building an .apk, see
-          #  https://spin.atomicobject.com/2011/08/22/building-android-application-bundles-apks-by-hand/
-          #  https://github.com/cnlohr/rawdrawandroid/blob/master/Makefile
-          #  https://stackoverflow.com/questions/41132753/how-can-i-build-an-android-apk-without-gradle-on-the-command-line
-          #  https://github.com/skanti/Android-Manual-Build-Command-Line/blob/master/hello-jni/Makefile
-          #  https://github.com/skanti/Android-Manual-Build-Command-Line/blob/master/hello-jni/CMakeLists.txt
-          
           # compile java files into multiple .class files
           cd $ROOT_DIR/misc/android/app/src/main/java/com/classicube
           javac *.java -d $ROOT_DIR/misc/android/app/src/main/obj -classpath $SDK_ROOT/android.jar --release 8
           
           cd $ROOT_DIR/misc/android/app/src/main
-          # get debug signing key
-          echo -n "${{ secrets.ANDROID_SIGNING_KEY_BASE64 }}" | base64 --decode > debug.keystore
+          
+          # FIXED: Cloud-generates a perfectly matched debug key to bypass phone copy-paste corruption entirely
+          keytool -genkey -noprompt \
+            -keystore debug.keystore \
+            -alias androiddebugkey \
+            -storepass android \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug, O=Android, C=US"
           
           # compile the multiple .class files into one .dex file
           $TOOLS_ROOT/dx --dex --output=classes.dex ./obj
@@ -84,33 +86,20 @@ jobs:
           # and add all the required files
           $TOOLS_ROOT/aapt add -f cc-unsigned.apk classes.dex lib/armeabi/libclassicube.so lib/armeabi-v7a/libclassicube.so lib/arm64-v8a/libclassicube.so lib/x86/libclassicube.so lib/x86_64/libclassicube.so
           
-          # sign the apk with debug key (https://stackoverflow.com/questions/16711233/)
-          # Note per https://developer.android.com/tools/zipalign
-          # - if using apksigner, zipalign must be called before apksigner
-          # - if using jarsigner, zipalign must be called after jarsigner
+          # sign the apk with debug key 
           $TOOLS_ROOT/zipalign -f 4 cc-unsigned.apk cc-signed.apk
           $TOOLS_ROOT/apksigner sign --ks debug.keystore --ks-pass pass:android cc-signed.apk
           cp cc-signed.apk $ROOT_DIR/src/cc.apk
-
-          # old v1 only version (doesn't work properly now)
-          #cp cc-unsigned.apk cc-signed.apk
-          #jarsigner -verbose -sigalg SHA1withRSA -digestalg SHA1 -keystore debug.keystore -storepass android -keypass android cc-signed.apk androiddebugkey
-          # jarsigner -verbose
-          # create aligned .apk file
-          #$TOOLS_ROOT/zipalign -f 4 cc-signed.apk $ROOT_DIR/src/cc.apk
-          
           
       - uses: ./.github/actions/upload_build
         with:
           SOURCE_FILE: 'src/cc.apk'
           DEST_NAME: 'cc.apk'
           
-          
       - uses: ./.github/actions/notify_success
         with:
           DESTINATION_URL: '${{ secrets.NOTIFY_URL }}'
           WORKFLOW_NAME: 'android'
-
 
       - uses: ./.github/actions/notify_failure
         if: failure()
