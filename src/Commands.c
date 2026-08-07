@@ -8,6 +8,7 @@
 #include "World.h"
 #include "Inventory.h"
 #include "Entity.h"
+#include "EntityComponents.h"
 #include "Window.h"
 #include "Graphics.h"
 #include "ExtMath.h"
@@ -839,6 +840,40 @@ static struct ChatCommand PiCommand = {
 	}
 };
 
+/*########################################################################################################################*
+*------------------------------------------------------bunyhop------------------------------------------------------------*
+*#########################################################################################################################*/
+static cc_bool airFriction_disabled;
+static Vec3    airFriction_savedDrag;
+
+static void AirFrictionCommand_Execute(const cc_string* args, int argsCount) {
+    struct PhysicsComp* physics = &LocalPlayer_Instance.Physics;
+
+    if (airFriction_disabled) {
+        /* restore normal air friction */
+        physics->drag = airFriction_savedDrag;
+        airFriction_disabled = false;
+        Chat_Add1("&eAir friction: %c", "&aON");
+    } else {
+        /* save current values, then neutralise drag completely */
+        airFriction_savedDrag = physics->drag;
+        physics->drag.x = 1.0f;
+        physics->drag.y = 1.0f;
+        physics->drag.z = 1.0f;
+        airFriction_disabled = true;
+        Chat_Add1("&eAir friction: %c", "&cOFF");
+    }
+}
+
+static struct ChatCommand AirFrictionCommand = {
+    "AirFriction", AirFrictionCommand_Execute,
+    0,
+    {
+        "&a/client airfriction",
+        "&eToggles air resistance (drag) for your player on/off",
+        NULL, NULL, NULL
+    }
+};
 
 /*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
