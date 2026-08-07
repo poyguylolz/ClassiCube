@@ -2,7 +2,7 @@
 <!-- BEGIN_INCLUDE(manifest) -->
 <manifest
     xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.classicube.android.client"
+    package="com.classicubepi.android.client"
     android:versionCode="1380"
     android:versionName="1.3.8">
 
@@ -25,7 +25,7 @@
 
     <activity
         android:name="com.classicube.MainActivity"
-        android:label="ClassiCube"
+        android:label="cladicub"
         android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
         android:exported="true">
 
