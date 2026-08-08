@@ -867,6 +867,46 @@ static void PhysicsComp_MoveNormal(struct PhysicsComp* comp, Vec3 vel, float fac
 	PhysicsComp_Move(comp, drag, gravity, yMul);
 }
 
+/* Quake-style air acceleration. Unlike PhysicsComp_MoveHor (which always adds a fixed  */
+/* nudge, then relies on drag to decay it back down), this only adds speed in the wish  */
+/* direction up to wishSpeed, and adds nothing at all once already moving that fast in  */
+/* that direction. Existing speed is never removed - only redirected/topped up - which  */
+/* is what lets a player keep 100% of their speed through a jump, and only gain more of */
+/* it by actively changing direction (air-strafing) rather than just holding forward.   */
+static void PhysicsComp_AirAccelerate(struct PhysicsComp* comp, Vec3 vel, float wishSpeed, float accel) {
+	struct Entity* entity = comp->Entity;
+	float dist, wishX, wishZ, curSpeed, addSpeed, accelSpeed;
+
+	dist = Math_SqrtF(vel.x * vel.x + vel.z * vel.z);
+	if (dist < 0.00001f) return;
+	wishX = vel.x / dist;
+	wishZ = vel.z / dist;
+
+	/* how fast are we already moving in the direction we're trying to move in? */
+	curSpeed = entity->Velocity.x * wishX + entity->Velocity.z * wishZ;
+	addSpeed = wishSpeed - curSpeed;
+	if (addSpeed <= 0.0f) return;
+
+	accelSpeed = accel * wishSpeed;
+	if (accelSpeed > addSpeed) accelSpeed = addSpeed;
+
+	entity->Velocity.x += accelSpeed * wishX;
+	entity->Velocity.z += accelSpeed * wishZ;
+}
+
+static void PhysicsComp_MoveQuakeAir(struct PhysicsComp* comp, Vec3 vel, float wishSpeed, float accel, float gravity, float yMul) {
+	/* Horizontal (x/z) drag is forced to 1 (no decay) - only PhysicsComp_AirAccelerate */
+	/* is allowed to change horizontal speed while airborne. Vertical drag is left      */
+	/* completely alone, so falling/jump arcs feel exactly like they normally do.       */
+	Vec3 noHorDrag;
+	noHorDrag.x = 1.0f;
+	noHorDrag.y = comp->drag.y;
+	noHorDrag.z = 1.0f;
+
+	PhysicsComp_AirAccelerate(comp, vel, wishSpeed, accel);
+	PhysicsComp_Move(comp, noHorDrag, gravity, yMul);
+}
+
 static float PhysicsComp_LowestModifier(struct PhysicsComp* comp, struct AABB* bounds, cc_bool checkSolid) {
 	IVec3 bbMin, bbMax;
 	float modifier = MATH_LARGENUM;
@@ -933,6 +973,9 @@ static float PhysicsComp_GetBaseSpeed(struct PhysicsComp* comp) {
 /* Adjustable at runtime (see WalkAccel/AirAccel commands in Commands.c) */
 float physics_groundAccel = 0.1f;
 float physics_airAccel    = 0.02f;
+/* When true, airborne horizontal movement uses PhysicsComp_MoveQuakeAir instead */
+/* of the usual fixed-nudge-then-decay model - see QuakeAir command in Commands.c */
+cc_bool physics_quakeAirStrafe = false;
 
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct Entity* entity   = comp->Entity;
@@ -974,6 +1017,8 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 
 		if (hacks->Floating) {
 			PhysicsComp_MoveFlying(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
+		} else if (physics_quakeAirStrafe && !entity->OnGround) {
+			PhysicsComp_MoveQuakeAir(comp, vel, horSpeed, physics_airAccel, gravity, verSpeed);
 		} else {
 			PhysicsComp_MoveNormal(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		}

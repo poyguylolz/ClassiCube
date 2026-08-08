@@ -961,6 +961,31 @@ static struct ChatCommand AirAccelCommand = {
 };
 
 /*########################################################################################################################*
+*----------------------------------------------------QuakeAirCommand------------------------------------------------------*
+*#########################################################################################################################*/
+static void QuakeAir_Execute(const cc_string* args, int argsCount) {
+	extern cc_bool physics_quakeAirStrafe;
+	physics_quakeAirStrafe = !physics_quakeAirStrafe;
+
+	if (physics_quakeAirStrafe) {
+		Chat_AddRaw("&aQuake-style air strafing &2enabled&a - speed is kept in the air, only strafing changes it.");
+	} else {
+		Chat_AddRaw("&aQuake-style air strafing &cdisabled&a - back to normal air movement.");
+	}
+}
+
+static struct ChatCommand QuakeAirCommand = {
+	"QuakeAir", QuakeAir_Execute,
+	0,
+	{
+		"&a/client quakeair",
+		"&eToggles Quake-style air strafing.",
+		"&eWhile airborne, speed is fully kept (no air friction at all) and can",
+		"&eonly be changed by air-strafing. Tune the feel with &a/client airaccel.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -981,6 +1006,7 @@ static void OnInit(void) {
 	Commands_Register(&NoAirFrictionCommand);
 	Commands_Register(&WalkAccelCommand);
 	Commands_Register(&AirAccelCommand);
+	Commands_Register(&QuakeAirCommand);
 }
 
 static void OnFree(void) {
