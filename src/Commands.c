@@ -839,6 +839,45 @@ static struct ChatCommand PiCommand = {
 		"&eUse &a/client pi reset &eto restore the original value.",
 	}
 };
+/*########################################################################################################################*
+*----------------------------------------------------NoAirFrictionCommand-------------------------------------------------*
+*#########################################################################################################################*/
+static Vec3    noAirFriction_origDrag;
+static cc_bool noAirFriction_haveOrig;
+static cc_bool noAirFriction_active;
+
+static void NoAirFrictionCommand_Execute(const cc_string* args, int argsCount) {
+	struct PhysicsComp* physics = &LocalPlayer_Instance.Physics;
+
+	if (!noAirFriction_haveOrig) {
+		noAirFriction_origDrag = physics->drag;
+		noAirFriction_haveOrig = true;
+	}
+	noAirFriction_active = !noAirFriction_active;
+
+	if (noAirFriction_active) {
+		/* drag defaults to (0.91, 0.98, 0.91) - PhysicsComp_Move() multiplies velocity
+		   by this every tick. Setting it to 1,1,1 means airborne velocity never decays,
+		   so speed gained while jumping/strafing is kept instead of bleeding off. */
+		Vec3_Set(physics->drag, 1.0f, 1.0f, 1.0f);
+		Chat_AddRaw("&aAir friction &cdisabled&a - go bunnyhop!");
+	} else {
+		physics->drag = noAirFriction_origDrag;
+		Chat_AddRaw("&aAir friction restored to normal");
+	}
+}
+
+static struct ChatCommand NoAirFrictionCommand = {
+	"NoAirFriction", NoAirFrictionCommand_Execute,
+	COMMAND_FLAG_SINGLEPLAYER_ONLY,
+	{
+		"&a/client noairfriction",
+		"&eToggles PhysicsComp.drag on the local player.",
+		"&eWith it off, speed gained while airborne never decays,",
+		"&eletting you bunnyhop indefinitely. Ground friction is untouched.",
+		NULL
+	}
+};
 
 /*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
@@ -858,6 +897,7 @@ static void OnInit(void) {
 	Commands_Register(&CuboidCommand);
 	Commands_Register(&ReplaceCommand);
 	Commands_Register(&PiCommand);
+	Commands_Register(&NoAirFrictionCommand);
 }
 
 static void OnFree(void) {
