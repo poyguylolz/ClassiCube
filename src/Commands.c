@@ -839,6 +839,7 @@ static struct ChatCommand PiCommand = {
 		"&eUse &a/client pi reset &eto restore the original value.",
 	}
 };
+
 /*########################################################################################################################*
 *----------------------------------------------------NoAirFrictionCommand-------------------------------------------------*
 *#########################################################################################################################*/
@@ -847,7 +848,7 @@ static cc_bool noAirFriction_haveOrig;
 static cc_bool noAirFriction_active;
 
 static void NoAirFrictionCommand_Execute(const cc_string* args, int argsCount) {
-	struct PhysicsComp* physics = &LocalPlayer_Instance.Physics;
+	struct PhysicsComp* physics = &Entities.CurPlayer->Physics;
 
 	if (!noAirFriction_haveOrig) {
 		noAirFriction_origDrag = physics->drag;
