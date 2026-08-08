@@ -83,6 +83,7 @@ static void SetMatrix(void) {
 /*  drifts from its normal -45 degrees as you look around.                 */
 #define HELD_TRUE_PI        3.1415926535897931f
 #define HELD_TRUE_RAD2DEG  (180.0f / HELD_TRUE_PI)
+#define HELD_TRUE_DEG2RAD  (HELD_TRUE_PI / 180.0f)
 
 static void ResetHeldState(void) {
 	/* Based off details from http://pastebin.com/KFV0HkmD (Thanks goodlyay!) */
@@ -127,7 +128,7 @@ static void SetBaseOffset(void) {
 }
 
 static void OnProjectionChanged(void* obj) {
-	float fov = 70.0f * MATH_DEG2RAD;
+	float fov = 70.0f * HELD_TRUE_DEG2RAD;
 	float aspectRatio = (float)Game.Width / (float)Game.Height;
 	Gfx_CalcPerspectiveMatrix(&held_blockProj, fov, aspectRatio, (float)Game_ViewDistance);
 }
