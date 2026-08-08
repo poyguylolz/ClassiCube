@@ -969,17 +969,21 @@ static float PhysicsComp_GetBaseSpeed(struct PhysicsComp* comp) {
 
 #define LIQUID_GRAVITY 0.02f
 #define ROPE_GRAVITY   0.034f
-/* Vanilla default air drag.x/z - used only to reconstruct a sensible, reachable */
-/* wishSpeed ceiling for QuakeAir mode below, independent of whatever comp->drag */
-/* currently is (e.g. if /client noairfriction has also been toggled on).       */
-#define QUAKEAIR_REFERENCE_DRAG 0.91f
 /* Acceleration toward full speed each tick - ground/flying vs airborne. */
 /* Adjustable at runtime (see WalkAccel/AirAccel commands in Commands.c) */
 float physics_groundAccel = 0.1f;
 float physics_airAccel    = 0.02f;
 /* When true, airborne horizontal movement uses PhysicsComp_MoveQuakeAir instead */
 /* of the usual fixed-nudge-then-decay model - see QuakeAir command in Commands.c */
-cc_bool physics_quakeAirStrafe = false;
+cc_bool physics_quakeAirStrafe   = false;
+/* Air-strafe speed cap, as a multiple of normal horSpeed. Deliberately NOT tied to  */
+/* physics_airAccel/drag - a cap derived from the old model's own convergence speed */
+/* ends up equal to the speed you're already moving at when you leave the ground,   */
+/* leaving no headroom to accelerate into at all. */
+float physics_quakeWishSpeedMul = 2.5f;
+/* How much of the gap to wishSpeed is closed per tick (0-1). Higher = faster/easier */
+/* to reach top speed, lower = requires tighter, more sustained strafing to build up. */
+float physics_quakeAccel        = 0.2f;
 
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct Entity* entity   = comp->Entity;
@@ -1022,13 +1026,13 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 		if (hacks->Floating) {
 			PhysicsComp_MoveFlying(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		} else if (physics_quakeAirStrafe && !entity->OnGround) {
-			/* Reconstruct the speed the OLD model's tick-then-decay loop would converge   */
-			/* to (factor * horSpeed each tick, decayed by drag) and use that as an actual */
-			/* reachable cap here - passing raw horSpeed directly made the cap effectively */
-			/* unreachable, since old model never reaches it either (it just approaches it */
-			/* asymptotically forever), which is why this felt identical to noairfriction. */
-			wishSpeed = (physics_airAccel * horSpeed) / (1.0f - QUAKEAIR_REFERENCE_DRAG);
-			PhysicsComp_MoveQuakeAir(comp, vel, wishSpeed, physics_airAccel, gravity, verSpeed);
+			/* wishSpeed set well above normal ground speed on purpose - you're already   */
+			/* moving at roughly ground speed the instant you leave the ground, so a cap  */
+			/* anywhere near that gives zero headroom to accelerate into (that was the    */
+			/* previous bug). physics_quakeAccel controls how fast you close that gap -   */
+			/* both are plain globals, tune with /client quakewish and /client quakeaccel. */
+			wishSpeed = physics_quakeWishSpeedMul * horSpeed;
+			PhysicsComp_MoveQuakeAir(comp, vel, wishSpeed, physics_quakeAccel, gravity, verSpeed);
 		} else {
 			PhysicsComp_MoveNormal(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		}

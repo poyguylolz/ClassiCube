@@ -981,7 +981,88 @@ static struct ChatCommand QuakeAirCommand = {
 		"&a/client quakeair",
 		"&eToggles Quake-style air strafing.",
 		"&eWhile airborne, speed is fully kept (no air friction at all) and can",
-		"&eonly be changed by air-strafing. Tune the feel with &a/client airaccel.",
+		"&eonly be changed by air-strafing. Tune the feel with &a/client quakewish",
+		"&eand &a/client quakeaccel.",
+	}
+};
+
+/*########################################################################################################################*
+*-----------------------------------------------------QuakeWishCommand----------------------------------------------------*
+*#########################################################################################################################*/
+#define QUAKE_WISH_DEFAULT 2.5f
+
+static void QuakeWish_Execute(const cc_string* args, int argsCount) {
+	extern float physics_quakeWishSpeedMul;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fQuakeAir speed cap is currently %f2 &etimes normal ground speed", &physics_quakeWishSpeedMul);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_quakeWishSpeedMul = QUAKE_WISH_DEFAULT;
+		Chat_AddRaw("&aQuakeAir speed cap has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+		return;
+	}
+
+	physics_quakeWishSpeedMul = v;
+	Chat_Add1("&e/client: &fQuakeAir speed cap is now %f2 &etimes normal ground speed", &physics_quakeWishSpeedMul);
+}
+
+static struct ChatCommand QuakeWishCommand = {
+	"QuakeWish", QuakeWish_Execute,
+	0,
+	{
+		"&a/client quakewish [value/reset]",
+		"&eSets the top air-strafe speed while &a/client quakeair &eis on,",
+		"&eas a multiple of normal ground speed. Default is 2.5.",
+		"&eRun with no arguments to see the current value.",
+	}
+};
+
+/*########################################################################################################################*
+*----------------------------------------------------QuakeAccelCommand----------------------------------------------------*
+*#########################################################################################################################*/
+#define QUAKE_ACCEL_DEFAULT 0.2f
+
+static void QuakeAccel_Execute(const cc_string* args, int argsCount) {
+	extern float physics_quakeAccel;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fQuakeAir acceleration is currently %f2", &physics_quakeAccel);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_quakeAccel = QUAKE_ACCEL_DEFAULT;
+		Chat_AddRaw("&aQuakeAir acceleration has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+		return;
+	}
+
+	physics_quakeAccel = v;
+	Chat_Add1("&e/client: &fQuakeAir acceleration is now %f2", &physics_quakeAccel);
+}
+
+static struct ChatCommand QuakeAccelCommand = {
+	"QuakeAccel", QuakeAccel_Execute,
+	0,
+	{
+		"&a/client quakeaccel [value/reset]",
+		"&eSets how quickly you close the gap to the QuakeAir speed cap.",
+		"&eHigher is snappier/easier, lower needs tighter strafing. Default 0.2.",
+		"&eRun with no arguments to see the current value.",
 	}
 };
 
@@ -1007,6 +1088,8 @@ static void OnInit(void) {
 	Commands_Register(&WalkAccelCommand);
 	Commands_Register(&AirAccelCommand);
 	Commands_Register(&QuakeAirCommand);
+	Commands_Register(&QuakeWishCommand);
+	Commands_Register(&QuakeAccelCommand);
 }
 
 static void OnFree(void) {
