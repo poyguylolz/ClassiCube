@@ -881,6 +881,86 @@ static struct ChatCommand NoAirFrictionCommand = {
 };
 
 /*########################################################################################################################*
+*-----------------------------------------------------WalkAccelCommand----------------------------------------------------*
+*#########################################################################################################################*/
+#define WALK_ACCEL_DEFAULT 0.1f
+
+static void WalkAccel_Execute(const cc_string* args, int argsCount) {
+	extern float physics_groundAccel;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fWalking acceleration is currently %f8", &physics_groundAccel);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_groundAccel = WALK_ACCEL_DEFAULT;
+		Chat_AddRaw("&aWalking acceleration has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+		return;
+	}
+
+	physics_groundAccel = v;
+	Chat_Add1("&e/client: &fWalking acceleration is now %f8", &physics_groundAccel);
+}
+
+static struct ChatCommand WalkAccelCommand = {
+	"WalkAccel", WalkAccel_Execute,
+	0,
+	{
+		"&a/client walkaccel [value/reset]",
+		"&eSets how fast you accelerate to full speed on the ground.",
+		"&eDefault is 0.1 - lower is more slippery, higher is snappier.",
+		"&eRun with no arguments to see the current value.",
+	}
+};
+
+/*########################################################################################################################*
+*------------------------------------------------------AirAccelCommand----------------------------------------------------*
+*#########################################################################################################################*/
+#define AIR_ACCEL_DEFAULT 0.02f
+
+static void AirAccel_Execute(const cc_string* args, int argsCount) {
+	extern float physics_airAccel;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fAir acceleration is currently %f8", &physics_airAccel);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_airAccel = AIR_ACCEL_DEFAULT;
+		Chat_AddRaw("&aAir acceleration has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+		return;
+	}
+
+	physics_airAccel = v;
+	Chat_Add1("&e/client: &fAir acceleration is now %f8", &physics_airAccel);
+}
+
+static struct ChatCommand AirAccelCommand = {
+	"AirAccel", AirAccel_Execute,
+	0,
+	{
+		"&a/client airaccel [value/reset]",
+		"&eSets how fast you gain speed while airborne (jumping/falling).",
+		"&eDefault is 0.02 - this is what strafe-jumping speed is built from.",
+		"&eRun with no arguments to see the current value.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -899,6 +979,8 @@ static void OnInit(void) {
 	Commands_Register(&ReplaceCommand);
 	Commands_Register(&PiCommand);
 	Commands_Register(&NoAirFrictionCommand);
+	Commands_Register(&WalkAccelCommand);
+	Commands_Register(&AirAccelCommand);
 }
 
 static void OnFree(void) {

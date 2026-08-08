@@ -929,6 +929,11 @@ static float PhysicsComp_GetBaseSpeed(struct PhysicsComp* comp) {
 
 #define LIQUID_GRAVITY 0.02f
 #define ROPE_GRAVITY   0.034f
+/* Acceleration toward full speed each tick - ground/flying vs airborne. */
+/* Adjustable at runtime (see WalkAccel/AirAccel commands in Commands.c) */
+float physics_groundAccel = 0.1f;
+float physics_airAccel    = 0.02f;
+
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct Entity* entity   = comp->Entity;
 	struct HacksComp* hacks = comp->Hacks;
@@ -964,7 +969,7 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 		Vec3 ropeDrag = { 0.5f, 0.85f, 0.5f };
 		PhysicsComp_MoveNormal(comp, vel, 0.02f * 1.7f, ropeDrag, ROPE_GRAVITY, verSpeed);
 	} else {
-		factor  = hacks->Floating || entity->OnGround ? 0.1f : 0.02f;
+		factor  = hacks->Floating || entity->OnGround ? physics_groundAccel : physics_airAccel;
 		gravity = comp->UseLiquidGravity ? LIQUID_GRAVITY : comp->gravity;
 
 		if (hacks->Floating) {
