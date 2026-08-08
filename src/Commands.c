@@ -870,7 +870,6 @@ static void NoAirFrictionCommand_Execute(const cc_string* args, int argsCount) {
 
 static struct ChatCommand NoAirFrictionCommand = {
 	"NoAirFriction", NoAirFrictionCommand_Execute,
-	COMMAND_FLAG_SINGLEPLAYER_ONLY,
 	{
 		"&a/client noairfriction",
 		"&eToggles PhysicsComp.drag on the local player.",
