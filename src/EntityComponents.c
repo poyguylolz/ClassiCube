@@ -877,7 +877,8 @@ float physics_airstrafeFriction = 8.0f;   /* ground deceleration rate */
 float physics_airstrafeTickrate = 20.0f;  /* ticks/sec assumed by the formulas below - */
                                            /* NOT the engine's real tick rate, just what */
                                            /* the accel/friction math scales itself by  */
-#define AIRSTRAFE_STOPSPEED    0.10f   /* below this speed, friction floors out */
+float physics_airstrafeStopspeed = 0.10f; /* below this speed, friction floors out - */
+                                           /* stops you actually reaching zero slowly */
 #define AIRSTRAFE_GROUND_SPEED 0.28f   /* max walking speed */
 #define AIRSTRAFE_GROUND_ACCEL 10.0f   /* how fast you reach ground speed */
 #define AIRSTRAFE_AIR_SPEED    0.28f   /* mid-air target max speed */
@@ -898,7 +899,7 @@ static void PhysicsComp_AirstrafeFriction(struct Entity* entity) {
 
 	if (speed < 0.00001f) { entity->Velocity.x = 0.0f; entity->Velocity.z = 0.0f; return; }
 
-	control  = speed < AIRSTRAFE_STOPSPEED ? AIRSTRAFE_STOPSPEED : speed;
+	control  = speed < physics_airstrafeStopspeed ? physics_airstrafeStopspeed : speed;
 	drop     = control * physics_airstrafeFriction * (1.0f / physics_airstrafeTickrate);
 	newSpeed = speed - drop;
 	if (newSpeed < 0.0f) newSpeed = 0.0f;

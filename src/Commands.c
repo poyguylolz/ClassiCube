@@ -1064,6 +1064,46 @@ static struct ChatCommand AirstrafeTickrateCommand = {
 };
 
 /*########################################################################################################################*
+*------------------------------------------------AirstrafeStopspeedCommand------------------------------------------------*
+*#########################################################################################################################*/
+#define AIRSTRAFE_STOPSPEED_DEFAULT 0.10f
+
+static void AirstrafeStopspeed_Execute(const cc_string* args, int argsCount) {
+	extern float physics_airstrafeStopspeed;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fAir-strafe stopspeed is currently %f2", &physics_airstrafeStopspeed);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_airstrafeStopspeed = AIRSTRAFE_STOPSPEED_DEFAULT;
+		Chat_AddRaw("&aAir-strafe stopspeed has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v < 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid non-negative number.");
+		return;
+	}
+
+	physics_airstrafeStopspeed = v;
+	Chat_Add1("&e/client: &fAir-strafe stopspeed is now %f2", &physics_airstrafeStopspeed);
+}
+
+static struct ChatCommand AirstrafeStopspeedCommand = {
+	"AirstrafeStopspeed", AirstrafeStopspeed_Execute,
+	0,
+	{
+		"&a/client airstrafestopspeed [value/reset]",
+		"&eBelow this ground speed, friction stops scaling down with speed",
+		"&eand instead uses this value directly - keeps you from sliding",
+		"&eforever at a crawl. 0 disables the floor. Default is 0.1.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1087,6 +1127,7 @@ static void OnInit(void) {
 	Commands_Register(&AirStrafeCommand);
 	Commands_Register(&AirstrafeFrictionCommand);
 	Commands_Register(&AirstrafeTickrateCommand);
+	Commands_Register(&AirstrafeStopspeedCommand);
 }
 
 static void OnFree(void) {
