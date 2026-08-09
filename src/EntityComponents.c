@@ -867,43 +867,86 @@ static void PhysicsComp_MoveNormal(struct PhysicsComp* comp, Vec3 vel, float fac
 	PhysicsComp_Move(comp, drag, gravity, yMul);
 }
 
-/* Quake-style air acceleration. Unlike PhysicsComp_MoveHor (which always adds a fixed  */
-/* nudge, then relies on drag to decay it back down), this only adds speed in the wish  */
-/* direction up to wishSpeed, and adds nothing at all once already moving that fast in  */
-/* that direction. Existing speed is never removed - only redirected/topped up - which  */
-/* is what lets a player keep 100% of their speed through a jump, and only gain more of */
-/* it by actively changing direction (air-strafing) rather than just holding forward.   */
-static void PhysicsComp_AirAccelerate(struct PhysicsComp* comp, Vec3 vel, float wishSpeed, float accel) {
-	struct Entity* entity = comp->Entity;
-	float dist, wishX, wishZ, curSpeed, addSpeed, accelSpeed;
+/* Classic Source-engine ground friction (PM_Friction). Ported from the      */
+/* Cwake reference plugin, with its per-frame `delta` replaced by the fixed  */
+/* per-tick AIRSTRAFE_TICK_DELTA, since this runs once per physics tick here */
+/* rather than once per rendered frame.                                     */
+static void PhysicsComp_AirstrafeFriction(struct Entity* entity) {
+	float vx = entity->Velocity.x, vz = entity->Velocity.z;
+	float speed = Math_SqrtF(vx * vx + vz * vz);
+	float control, drop, newSpeed;
 
-	dist = Math_SqrtF(vel.x * vel.x + vel.z * vel.z);
-	if (dist < 0.00001f) return;
-	wishX = vel.x / dist;
-	wishZ = vel.z / dist;
+	if (speed < 0.00001f) { entity->Velocity.x = 0.0f; entity->Velocity.z = 0.0f; return; }
 
-	/* how fast are we already moving in the direction we're trying to move in? */
-	curSpeed = entity->Velocity.x * wishX + entity->Velocity.z * wishZ;
-	addSpeed = wishSpeed - curSpeed;
-	if (addSpeed <= 0.0f) return;
+	control  = speed < AIRSTRAFE_STOPSPEED ? AIRSTRAFE_STOPSPEED : speed;
+	drop     = control * AIRSTRAFE_FRICTION * AIRSTRAFE_TICK_DELTA;
+	newSpeed = speed - drop;
+	if (newSpeed < 0.0f) newSpeed = 0.0f;
+	newSpeed /= speed;
 
-	accelSpeed = accel * wishSpeed;
-	if (accelSpeed > addSpeed) accelSpeed = addSpeed;
-
-	entity->Velocity.x += accelSpeed * wishX;
-	entity->Velocity.z += accelSpeed * wishZ;
+	entity->Velocity.x *= newSpeed;
+	entity->Velocity.z *= newSpeed;
 }
 
-static void PhysicsComp_MoveQuakeAir(struct PhysicsComp* comp, Vec3 vel, float wishSpeed, float accel, float gravity, float yMul) {
-	/* Horizontal (x/z) drag is forced to 1 (no decay) - only PhysicsComp_AirAccelerate */
-	/* is allowed to change horizontal speed while airborne. Vertical drag is left      */
-	/* completely alone, so falling/jump arcs feel exactly like they normally do.       */
-	Vec3 noHorDrag;
-	noHorDrag.x = 1.0f;
-	noHorDrag.y = comp->drag.y;
-	noHorDrag.z = 1.0f;
+/* Classic Source-engine ground acceleration (PM_Accelerate). wx/wz is the   */
+/* normalised wish direction; only adds speed up to wishSpeed in that       */
+/* direction, same idea as air-accelerate below but with no per-tick cap.   */
+static void PhysicsComp_AirstrafeAccelerate(struct Entity* entity, float wx, float wz, float wishSpeed, float accel) {
+	float cur = entity->Velocity.x * wx + entity->Velocity.z * wz;
+	float add = wishSpeed - cur;
+	float acc;
+	if (add <= 0.0f) return;
 
-	PhysicsComp_AirAccelerate(comp, vel, wishSpeed, accel);
+	acc = accel * wishSpeed * AIRSTRAFE_TICK_DELTA;
+	if (acc > add) acc = add;
+
+	entity->Velocity.x += acc * wx;
+	entity->Velocity.z += acc * wz;
+}
+
+/* Classic Source-engine air acceleration (PM_AirAccelerate). Same shape as  */
+/* Accelerate above, except the wishSpeed used to work out the accel RATE   */
+/* is clamped to AIRSTRAFE_AIR_CAP first. That clamp is what actually makes */
+/* air-strafing a skill: it limits how much speed any single tick can add,  */
+/* so real speed only builds up over many ticks of well-aimed strafing,     */
+/* rather than being reachable just by holding a direction once.           */
+static void PhysicsComp_AirstrafeAirAccelerate(struct Entity* entity, float wx, float wz, float wishSpeed, float accel) {
+	float capped = wishSpeed > AIRSTRAFE_AIR_CAP ? AIRSTRAFE_AIR_CAP : wishSpeed;
+	float cur = entity->Velocity.x * wx + entity->Velocity.z * wz;
+	float add = capped - cur;
+	float acc;
+	if (add <= 0.0f) return;
+
+	acc = accel * wishSpeed * AIRSTRAFE_TICK_DELTA;
+	if (acc > add) acc = add;
+
+	entity->Velocity.x += acc * wx;
+	entity->Velocity.z += acc * wz;
+}
+
+/* Replaces the usual ground+air horizontal movement entirely when          */
+/* /client airstrafe is on. `grounded` should be true only when actually on */
+/* the ground AND not currently trying to jump - skipping friction/ground-  */
+/* accelerate on the takeoff tick itself preserves your speed cleanly into  */
+/* the jump, same as the reference plugin does.                             */
+static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, cc_bool grounded, float gravity, float yMul) {
+	struct Entity* entity = comp->Entity;
+	Vec3 noHorDrag;
+	float dist, wx = 0.0f, wz = 0.0f;
+
+	dist = Math_SqrtF(vel.x * vel.x + vel.z * vel.z);
+	if (dist > 0.00001f) { wx = vel.x / dist; wz = vel.z / dist; }
+
+	if (grounded) {
+		PhysicsComp_AirstrafeFriction(entity);
+		if (dist > 0.00001f) PhysicsComp_AirstrafeAccelerate(entity, wx, wz, AIRSTRAFE_GROUND_SPEED, AIRSTRAFE_GROUND_ACCEL);
+	} else if (dist > 0.00001f) {
+		PhysicsComp_AirstrafeAirAccelerate(entity, wx, wz, AIRSTRAFE_AIR_SPEED, AIRSTRAFE_AIR_ACCEL);
+	}
+
+	/* Horizontal drag neutralised - the functions above already did that job. */
+	/* Vertical drag/gravity handling is untouched, so fall/jump arcs are normal.*/
+	noHorDrag.x = 1.0f; noHorDrag.y = comp->drag.y; noHorDrag.z = 1.0f;
 	PhysicsComp_Move(comp, noHorDrag, gravity, yMul);
 }
 
@@ -973,23 +1016,32 @@ static float PhysicsComp_GetBaseSpeed(struct PhysicsComp* comp) {
 /* Adjustable at runtime (see WalkAccel/AirAccel commands in Commands.c) */
 float physics_groundAccel = 0.1f;
 float physics_airAccel    = 0.02f;
-/* When true, airborne horizontal movement uses PhysicsComp_MoveQuakeAir instead */
-/* of the usual fixed-nudge-then-decay model - see QuakeAir command in Commands.c */
-cc_bool physics_quakeAirStrafe   = false;
-/* Air-strafe speed cap, as a multiple of normal horSpeed. Deliberately NOT tied to  */
-/* physics_airAccel/drag - a cap derived from the old model's own convergence speed */
-/* ends up equal to the speed you're already moving at when you leave the ground,   */
-/* leaving no headroom to accelerate into at all. */
-float physics_quakeWishSpeedMul = 2.5f;
-/* How much of the gap to wishSpeed is closed per tick (0-1). Higher = faster/easier */
-/* to reach top speed, lower = requires tighter, more sustained strafing to build up. */
-float physics_quakeAccel        = 0.2f;
+/* Toggled by /client airstrafe in Commands.c. When true, ground AND air     */
+/* horizontal movement both use the Source/Quake-style functions below      */
+/* instead of the usual model - see PhysicsComp_MoveAirstrafe.              */
+cc_bool physics_airstrafeEnabled = false;
+
+/* ClassiCube runs physics on a fixed 20 ticks/second, regardless of render  */
+/* framerate - confirmed by the speedometer math elsewhere in this codebase */
+/* (blocks/sec = blocks/tick * 20). The constants below are taken as-is     */
+/* from a proven CPM/Source-style ClassiCube movement mod, not guessed at.  */
+#define AIRSTRAFE_TICK_DELTA  (1.0f / 20.0f)
+#define AIRSTRAFE_FRICTION     8.0f    /* ground deceleration rate */
+#define AIRSTRAFE_STOPSPEED    0.10f   /* below this speed, friction floors out */
+#define AIRSTRAFE_GROUND_SPEED 0.28f   /* max walking speed */
+#define AIRSTRAFE_GROUND_ACCEL 10.0f   /* how fast you reach ground speed */
+#define AIRSTRAFE_AIR_SPEED    0.28f   /* mid-air target max speed */
+#define AIRSTRAFE_AIR_ACCEL    10.0f   /* mid-air turning control */
+#define AIRSTRAFE_AIR_CAP      0.05f   /* mid-air speed GAIN limit per tick - */
+                                        /* this is what makes strafing require */
+                                        /* actual skill instead of doing       */
+                                        /* nothing or feeling unbounded        */
 
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct Entity* entity   = comp->Entity;
 	struct HacksComp* hacks = comp->Hacks;
 	float baseSpeed, verSpeed, horSpeed;
-	float factor, gravity, wishSpeed;
+	float factor, gravity;
 	cc_bool womSpeedBoost;
 
 	if (hacks->Noclip) entity->OnGround = false;
@@ -1020,24 +1072,25 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 		Vec3 ropeDrag = { 0.5f, 0.85f, 0.5f };
 		PhysicsComp_MoveNormal(comp, vel, 0.02f * 1.7f, ropeDrag, ROPE_GRAVITY, verSpeed);
 	} else {
+		cc_bool usedAirstrafe;
 		factor  = hacks->Floating || entity->OnGround ? physics_groundAccel : physics_airAccel;
 		gravity = comp->UseLiquidGravity ? LIQUID_GRAVITY : comp->gravity;
+		usedAirstrafe = physics_airstrafeEnabled && !hacks->Floating;
 
 		if (hacks->Floating) {
 			PhysicsComp_MoveFlying(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
-		} else if (physics_quakeAirStrafe && !entity->OnGround) {
-			/* wishSpeed set well above normal ground speed on purpose - you're already   */
-			/* moving at roughly ground speed the instant you leave the ground, so a cap  */
-			/* anywhere near that gives zero headroom to accelerate into (that was the    */
-			/* previous bug). physics_quakeAccel controls how fast you close that gap -   */
-			/* both are plain globals, tune with /client quakewish and /client quakeaccel. */
-			wishSpeed = physics_quakeWishSpeedMul * horSpeed;
-			PhysicsComp_MoveQuakeAir(comp, vel, wishSpeed, physics_quakeAccel, gravity, verSpeed);
+		} else if (usedAirstrafe) {
+			PhysicsComp_MoveAirstrafe(comp, vel, entity->OnGround && !comp->Jumping, gravity, verSpeed);
 		} else {
 			PhysicsComp_MoveNormal(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		}
 
-		if (PhysicsComp_OnIce(entity) && !hacks->Floating) {
+		if (usedAirstrafe) {
+			/* PhysicsComp_MoveAirstrafe already applied its own friction/accelerate -  */
+			/* skip the vanilla ice-clamp/groundFriction step below entirely, which     */
+			/* would otherwise double up on top of it (comp->groundFriction would get   */
+			/* multiplied in a second time on every grounded tick).                     */
+		} else if (PhysicsComp_OnIce(entity) && !hacks->Floating) {
 			/* limit components to +-0.25f by rescaling vector to [-0.25, 0.25] */
 			if (Math_AbsF(entity->Velocity.x) > 0.25f || Math_AbsF(entity->Velocity.z) > 0.25f) {
 				float xScale = Math_AbsF(0.25f / entity->Velocity.x);
