@@ -1104,6 +1104,29 @@ static struct ChatCommand AirstrafeStopspeedCommand = {
 };
 
 /*########################################################################################################################*
+*-------------------------------------------------AirstrafeSpeedoCommand--------------------------------------------------*
+*#########################################################################################################################*/
+static void AirstrafeSpeedo_Execute(const cc_string* args, int argsCount) {
+	extern cc_bool physics_airstrafeSpeedo;
+	physics_airstrafeSpeedo = !physics_airstrafeSpeedo;
+
+	Chat_AddRaw(physics_airstrafeSpeedo
+		? "&aSpeedometer &2enabled&a - shown above the hotbar while airstrafe is on."
+		: "&aSpeedometer &cdisabled&a.");
+}
+
+static struct ChatCommand AirstrafeSpeedoCommand = {
+	"AirstrafeSpeedo", AirstrafeSpeedo_Execute,
+	0,
+	{
+		"&a/client airstrafespeedo",
+		"&eToggles a speed readout above the hotbar, in blocks/second,",
+		"&erounded to the nearest block. Only updates while",
+		"&e&a/client airstrafe &eis also on.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1128,6 +1151,7 @@ static void OnInit(void) {
 	Commands_Register(&AirstrafeFrictionCommand);
 	Commands_Register(&AirstrafeTickrateCommand);
 	Commands_Register(&AirstrafeStopspeedCommand);
+	Commands_Register(&AirstrafeSpeedoCommand);
 }
 
 static void OnFree(void) {

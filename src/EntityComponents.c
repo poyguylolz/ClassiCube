@@ -13,6 +13,7 @@
 #include "Physics.h"
 #include "Model.h"
 #include "Audio.h"
+#include "Chat.h"
 
 /*########################################################################################################################*
 *----------------------------------------------------AnimatedComponent----------------------------------------------------*
@@ -945,6 +946,30 @@ static void PhysicsComp_AirstrafeAirAccelerate(struct Entity* entity, float wx, 
 	entity->Velocity.z += acc * wz;
 }
 
+/* Toggled by /client airstrafespeedo. Shows current horizontal speed in    */
+/* blocks/second, right above the hotbar (MSG_TYPE_BOTTOMRIGHT_1 - same     */
+/* slot the reference plugin's own speedometer uses, confirmed anchored to  */
+/* the hotbar via Screens.c: bottomRight.yOffset = HUDScreen_LayoutHotbar() */
+/* + ...). Rounded to the nearest whole block, unlike the reference         */
+/* plugin's one-decimal display, as asked for.                              */
+cc_bool physics_airstrafeSpeedo = false;
+
+/* The engine's REAL tick rate (confirmed fixed via Constants.h's           */
+/* GAME_DEF_TICKS) - deliberately NOT physics_airstrafeTickrate, which only */
+/* rescales the feel of the accel/friction math and would give a misleading */
+/* reading here if it were used to convert to blocks/second instead.        */
+#define AIRSTRAFE_REAL_TICKS_PER_SEC 20.0f
+
+static void PhysicsComp_AirstrafeUpdateSpeedo(struct Entity* entity) {
+	float speed = Math_SqrtF(entity->Velocity.x * entity->Velocity.x + entity->Velocity.z * entity->Velocity.z);
+	int blocksPerSec = (int)(speed * AIRSTRAFE_REAL_TICKS_PER_SEC + 0.5f);
+	cc_string msg; char buffer[STRING_SIZE];
+
+	String_InitArray(msg, buffer);
+	String_Format1(&msg, "&bSpeed: %i blocks/s", &blocksPerSec);
+	Chat_AddOf(&msg, MSG_TYPE_BOTTOMRIGHT_1);
+}
+
 /* Replaces the usual ground+air horizontal movement entirely when          */
 /* /client airstrafe is on. Structured to match the reference plugin's own  */
 /* Cwake_Tick exactly, including one subtlety: the ground/air SPEED TARGET  */
@@ -971,6 +996,8 @@ static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, cc_boo
 			PhysicsComp_AirstrafeAirAccelerate(entity, wx, wz, wishSpeed, AIRSTRAFE_AIR_ACCEL);
 		}
 	}
+
+	if (physics_airstrafeSpeedo) PhysicsComp_AirstrafeUpdateSpeedo(entity);
 
 	/* Horizontal drag neutralised - the functions above already did that job. */
 	/* Vertical drag/gravity handling is untouched, so fall/jump arcs are normal.*/
