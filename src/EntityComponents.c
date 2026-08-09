@@ -867,6 +867,22 @@ static void PhysicsComp_MoveNormal(struct PhysicsComp* comp, Vec3 vel, float fac
 	PhysicsComp_Move(comp, drag, gravity, yMul);
 }
 
+/* ClassiCube runs physics on a fixed 20 ticks/second, regardless of render  */
+/* framerate - confirmed by the speedometer math elsewhere in this codebase */
+/* (blocks/sec = blocks/tick * 20). The constants below are taken as-is     */
+/* from a proven CPM/Source-style ClassiCube movement mod, not guessed at.  */
+#define AIRSTRAFE_TICK_DELTA  (1.0f / 20.0f)
+#define AIRSTRAFE_FRICTION     8.0f    /* ground deceleration rate */
+#define AIRSTRAFE_STOPSPEED    0.10f   /* below this speed, friction floors out */
+#define AIRSTRAFE_GROUND_SPEED 0.28f   /* max walking speed */
+#define AIRSTRAFE_GROUND_ACCEL 10.0f   /* how fast you reach ground speed */
+#define AIRSTRAFE_AIR_SPEED    0.28f   /* mid-air target max speed */
+#define AIRSTRAFE_AIR_ACCEL    10.0f   /* mid-air turning control */
+#define AIRSTRAFE_AIR_CAP      0.05f   /* mid-air speed GAIN limit per tick - */
+                                        /* this is what makes strafing require */
+                                        /* actual skill instead of doing       */
+                                        /* nothing or feeling unbounded        */
+
 /* Classic Source-engine ground friction (PM_Friction). Ported from the      */
 /* Cwake reference plugin, with its per-frame `delta` replaced by the fixed  */
 /* per-tick AIRSTRAFE_TICK_DELTA, since this runs once per physics tick here */
@@ -1017,25 +1033,9 @@ static float PhysicsComp_GetBaseSpeed(struct PhysicsComp* comp) {
 float physics_groundAccel = 0.1f;
 float physics_airAccel    = 0.02f;
 /* Toggled by /client airstrafe in Commands.c. When true, ground AND air     */
-/* horizontal movement both use the Source/Quake-style functions below      */
-/* instead of the usual model - see PhysicsComp_MoveAirstrafe.              */
+/* horizontal movement both use the Source/Quake-style functions defined    */
+/* earlier in this file - see PhysicsComp_MoveAirstrafe.                    */
 cc_bool physics_airstrafeEnabled = false;
-
-/* ClassiCube runs physics on a fixed 20 ticks/second, regardless of render  */
-/* framerate - confirmed by the speedometer math elsewhere in this codebase */
-/* (blocks/sec = blocks/tick * 20). The constants below are taken as-is     */
-/* from a proven CPM/Source-style ClassiCube movement mod, not guessed at.  */
-#define AIRSTRAFE_TICK_DELTA  (1.0f / 20.0f)
-#define AIRSTRAFE_FRICTION     8.0f    /* ground deceleration rate */
-#define AIRSTRAFE_STOPSPEED    0.10f   /* below this speed, friction floors out */
-#define AIRSTRAFE_GROUND_SPEED 0.28f   /* max walking speed */
-#define AIRSTRAFE_GROUND_ACCEL 10.0f   /* how fast you reach ground speed */
-#define AIRSTRAFE_AIR_SPEED    0.28f   /* mid-air target max speed */
-#define AIRSTRAFE_AIR_ACCEL    10.0f   /* mid-air turning control */
-#define AIRSTRAFE_AIR_CAP      0.05f   /* mid-air speed GAIN limit per tick - */
-                                        /* this is what makes strafing require */
-                                        /* actual skill instead of doing       */
-                                        /* nothing or feeling unbounded        */
 
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct Entity* entity   = comp->Entity;
