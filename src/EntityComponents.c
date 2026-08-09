@@ -869,10 +869,14 @@ static void PhysicsComp_MoveNormal(struct PhysicsComp* comp, Vec3 vel, float fac
 
 /* ClassiCube runs physics on a fixed 20 ticks/second, regardless of render  */
 /* framerate - confirmed by the speedometer math elsewhere in this codebase */
-/* (blocks/sec = blocks/tick * 20). The constants below are taken as-is     */
-/* from a proven CPM/Source-style ClassiCube movement mod, not guessed at.  */
-#define AIRSTRAFE_TICK_DELTA  (1.0f / 20.0f)
-#define AIRSTRAFE_FRICTION     8.0f    /* ground deceleration rate */
+/* (blocks/sec = blocks/tick * 20). Most of the constants below are taken   */
+/* as-is from a proven CPM/Source-style ClassiCube movement mod. Friction   */
+/* and the assumed tickrate are runtime-tunable (see Commands.c) rather     */
+/* than fixed #defines, since they're the two most commonly retuned knobs. */
+float physics_airstrafeFriction = 8.0f;   /* ground deceleration rate */
+float physics_airstrafeTickrate = 20.0f;  /* ticks/sec assumed by the formulas below - */
+                                           /* NOT the engine's real tick rate, just what */
+                                           /* the accel/friction math scales itself by  */
 #define AIRSTRAFE_STOPSPEED    0.10f   /* below this speed, friction floors out */
 #define AIRSTRAFE_GROUND_SPEED 0.28f   /* max walking speed */
 #define AIRSTRAFE_GROUND_ACCEL 10.0f   /* how fast you reach ground speed */
@@ -884,9 +888,9 @@ static void PhysicsComp_MoveNormal(struct PhysicsComp* comp, Vec3 vel, float fac
                                         /* nothing or feeling unbounded        */
 
 /* Classic Source-engine ground friction (PM_Friction). Ported from the      */
-/* Cwake reference plugin, with its per-frame `delta` replaced by the fixed  */
-/* per-tick AIRSTRAFE_TICK_DELTA, since this runs once per physics tick here */
-/* rather than once per rendered frame.                                     */
+/* Cwake reference plugin, with its per-frame `delta` replaced by             */
+/* 1/physics_airstrafeTickrate, since this runs once per physics tick here    */
+/* rather than once per rendered frame.                                       */
 static void PhysicsComp_AirstrafeFriction(struct Entity* entity) {
 	float vx = entity->Velocity.x, vz = entity->Velocity.z;
 	float speed = Math_SqrtF(vx * vx + vz * vz);
@@ -895,7 +899,7 @@ static void PhysicsComp_AirstrafeFriction(struct Entity* entity) {
 	if (speed < 0.00001f) { entity->Velocity.x = 0.0f; entity->Velocity.z = 0.0f; return; }
 
 	control  = speed < AIRSTRAFE_STOPSPEED ? AIRSTRAFE_STOPSPEED : speed;
-	drop     = control * AIRSTRAFE_FRICTION * AIRSTRAFE_TICK_DELTA;
+	drop     = control * physics_airstrafeFriction * (1.0f / physics_airstrafeTickrate);
 	newSpeed = speed - drop;
 	if (newSpeed < 0.0f) newSpeed = 0.0f;
 	newSpeed /= speed;
@@ -913,7 +917,7 @@ static void PhysicsComp_AirstrafeAccelerate(struct Entity* entity, float wx, flo
 	float acc;
 	if (add <= 0.0f) return;
 
-	acc = accel * wishSpeed * AIRSTRAFE_TICK_DELTA;
+	acc = accel * wishSpeed * (1.0f / physics_airstrafeTickrate);
 	if (acc > add) acc = add;
 
 	entity->Velocity.x += acc * wx;
@@ -933,7 +937,7 @@ static void PhysicsComp_AirstrafeAirAccelerate(struct Entity* entity, float wx, 
 	float acc;
 	if (add <= 0.0f) return;
 
-	acc = accel * wishSpeed * AIRSTRAFE_TICK_DELTA;
+	acc = accel * wishSpeed * (1.0f / physics_airstrafeTickrate);
 	if (acc > add) acc = add;
 
 	entity->Velocity.x += acc * wx;

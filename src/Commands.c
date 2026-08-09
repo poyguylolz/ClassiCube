@@ -979,7 +979,87 @@ static struct ChatCommand AirStrafeCommand = {
 		"&a/client airstrafe",
 		"&eToggles Source/Quake-style ground+air movement.",
 		"&eSpeed is kept in the air and only grows through strafing.",
-		"&eSee AIRSTRAFE_* constants in EntityComponents.c to retune the feel.",
+		"&eSee &a/client airstrafefriction &eand &a/client airstrafetickrate &eto retune.",
+	}
+};
+
+/*########################################################################################################################*
+*------------------------------------------------AirstrafeFrictionCommand-------------------------------------------------*
+*#########################################################################################################################*/
+#define AIRSTRAFE_FRICTION_DEFAULT 8.0f
+
+static void AirstrafeFriction_Execute(const cc_string* args, int argsCount) {
+	extern float physics_airstrafeFriction;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fAir-strafe ground friction is currently %f2", &physics_airstrafeFriction);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_airstrafeFriction = AIRSTRAFE_FRICTION_DEFAULT;
+		Chat_AddRaw("&aAir-strafe ground friction has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v < 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid non-negative number.");
+		return;
+	}
+
+	physics_airstrafeFriction = v;
+	Chat_Add1("&e/client: &fAir-strafe ground friction is now %f2", &physics_airstrafeFriction);
+}
+
+static struct ChatCommand AirstrafeFrictionCommand = {
+	"AirstrafeFriction", AirstrafeFriction_Execute,
+	0,
+	{
+		"&a/client airstrafefriction [value/reset]",
+		"&eSets ground deceleration while &a/client airstrafe &eis on.",
+		"&eHigher stops you faster, 0 removes ground friction entirely.",
+		"&eDefault is 8. Run with no arguments to see the current value.",
+	}
+};
+
+/*########################################################################################################################*
+*------------------------------------------------AirstrafeTickrateCommand-------------------------------------------------*
+*#########################################################################################################################*/
+#define AIRSTRAFE_TICKRATE_DEFAULT 20.0f
+
+static void AirstrafeTickrate_Execute(const cc_string* args, int argsCount) {
+	extern float physics_airstrafeTickrate;
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fAir-strafe tickrate is currently %f2", &physics_airstrafeTickrate);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_airstrafeTickrate = AIRSTRAFE_TICKRATE_DEFAULT;
+		Chat_AddRaw("&aAir-strafe tickrate has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+		return;
+	}
+
+	physics_airstrafeTickrate = v;
+	Chat_Add1("&e/client: &fAir-strafe tickrate is now %f2", &physics_airstrafeTickrate);
+}
+
+static struct ChatCommand AirstrafeTickrateCommand = {
+	"AirstrafeTickrate", AirstrafeTickrate_Execute,
+	0,
+	{
+		"&a/client airstrafetickrate [value/reset]",
+		"&eSets the ticks/sec the friction/accelerate math assumes it's",
+		"&erunning at (NOT the engine's real tickrate, which stays fixed).",
+		"&eHigher = snappier accel/friction per real second. Default is 20.",
 	}
 };
 
@@ -1005,6 +1085,8 @@ static void OnInit(void) {
 	Commands_Register(&WalkAccelCommand);
 	Commands_Register(&AirAccelCommand);
 	Commands_Register(&AirStrafeCommand);
+	Commands_Register(&AirstrafeFrictionCommand);
+	Commands_Register(&AirstrafeTickrateCommand);
 }
 
 static void OnFree(void) {
