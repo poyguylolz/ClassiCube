@@ -946,23 +946,30 @@ static void PhysicsComp_AirstrafeAirAccelerate(struct Entity* entity, float wx, 
 }
 
 /* Replaces the usual ground+air horizontal movement entirely when          */
-/* /client airstrafe is on. `grounded` should be true only when actually on */
-/* the ground AND not currently trying to jump - skipping friction/ground-  */
-/* accelerate on the takeoff tick itself preserves your speed cleanly into  */
-/* the jump, same as the reference plugin does.                             */
-static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, cc_bool grounded, float gravity, float yMul) {
+/* /client airstrafe is on. Structured to match the reference plugin's own  */
+/* Cwake_Tick exactly, including one subtlety: the ground/air SPEED TARGET  */
+/* is picked from raw onGround, while the friction/accelerate FUNCTION      */
+/* CHOICE uses onGround-and-not-jumping - so on the exact tick you jump,    */
+/* air-accelerate runs but still targets ground speed for that one tick,    */
+/* same as it does in the reference plugin.                                 */
+static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, cc_bool onGround, cc_bool tryingToJump, float gravity, float yMul) {
 	struct Entity* entity = comp->Entity;
 	Vec3 noHorDrag;
-	float dist, wx = 0.0f, wz = 0.0f;
+	float dist, wx = 0.0f, wz = 0.0f, wishSpeed;
+	cc_bool groundedNotJumping = onGround && !tryingToJump;
+
+	if (groundedNotJumping) PhysicsComp_AirstrafeFriction(entity);
 
 	dist = Math_SqrtF(vel.x * vel.x + vel.z * vel.z);
-	if (dist > 0.00001f) { wx = vel.x / dist; wz = vel.z / dist; }
+	if (dist > 0.00001f) {
+		wx = vel.x / dist; wz = vel.z / dist;
+		wishSpeed = onGround ? AIRSTRAFE_GROUND_SPEED : AIRSTRAFE_AIR_SPEED;
 
-	if (grounded) {
-		PhysicsComp_AirstrafeFriction(entity);
-		if (dist > 0.00001f) PhysicsComp_AirstrafeAccelerate(entity, wx, wz, AIRSTRAFE_GROUND_SPEED, AIRSTRAFE_GROUND_ACCEL);
-	} else if (dist > 0.00001f) {
-		PhysicsComp_AirstrafeAirAccelerate(entity, wx, wz, AIRSTRAFE_AIR_SPEED, AIRSTRAFE_AIR_ACCEL);
+		if (groundedNotJumping) {
+			PhysicsComp_AirstrafeAccelerate(entity, wx, wz, wishSpeed, AIRSTRAFE_GROUND_ACCEL);
+		} else {
+			PhysicsComp_AirstrafeAirAccelerate(entity, wx, wz, wishSpeed, AIRSTRAFE_AIR_ACCEL);
+		}
 	}
 
 	/* Horizontal drag neutralised - the functions above already did that job. */
@@ -1085,7 +1092,7 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 		if (hacks->Floating) {
 			PhysicsComp_MoveFlying(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		} else if (usedAirstrafe) {
-			PhysicsComp_MoveAirstrafe(comp, vel, entity->OnGround && !comp->Jumping, gravity, verSpeed);
+			PhysicsComp_MoveAirstrafe(comp, vel, entity->OnGround, comp->Jumping, gravity, verSpeed);
 		} else {
 			PhysicsComp_MoveNormal(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		}
