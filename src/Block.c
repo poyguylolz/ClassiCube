@@ -751,6 +751,37 @@ cc_bool AutoRotate_BlocksShareGroup(BlockID block, BlockID other) {
 /*########################################################################################################################*
 *----------------------------------------------------Blocks component-----------------------------------------------------*
 *#########################################################################################################################*/
+/* Defines BLOCK_PORTAL (768) - a client-only block, not sent by/to any server. */
+/* Walk into it to teleport; see PhysicsComp_CheckPortal in EntityComponents.c  */
+/* for the teleport logic and the AirstrafePortal command in Commands.c for    */
+/* placing/linking a pair of these.                                            */
+/* Called from OnReset (not just OnInit) since OnReset wipes every block back  */
+/* to its default definition on every map load / server reconnect.            */
+static void Block_InitPortal(void) {
+	cc_string name = String_FromConst("Portal");
+	Block_SetName(BLOCK_PORTAL, &name);
+
+	/* COLLIDE_NONE - walk straight through it, same as how you'd want a    */
+	/* portal to work rather than bumping into a solid wall.                */
+	Blocks.Collide[BLOCK_PORTAL]         = COLLIDE_NONE;
+	Blocks.ExtendedCollide[BLOCK_PORTAL] = COLLIDE_NONE;
+	Blocks.Draw[BLOCK_PORTAL]      = DRAW_TRANSLUCENT;
+	Blocks.BlocksLight[BLOCK_PORTAL] = false;
+	Blocks.FullOpaque[BLOCK_PORTAL]  = false;
+	Blocks.CanPlace[BLOCK_PORTAL]  = true;
+	Blocks.CanDelete[BLOCK_PORTAL] = true;
+
+	/* Reuses Obsidian's existing texture (thematically the classic portal- */
+	/* frame material) rather than requiring a texture pack change - a true */
+	/* "see-through" portal surface isn't implemented, see the accompanying */
+	/* explanation for why.                                                  */
+	Block_SetSide(Block_Tex(BLOCK_OBSIDIAN, FACE_XMIN), BLOCK_PORTAL);
+	Block_Tex(BLOCK_PORTAL, FACE_YMAX) = Block_Tex(BLOCK_OBSIDIAN, FACE_YMAX);
+	Block_Tex(BLOCK_PORTAL, FACE_YMIN) = Block_Tex(BLOCK_OBSIDIAN, FACE_YMIN);
+
+	Block_DefineCustom(BLOCK_PORTAL, false);
+}
+
 static void OnReset(void) {
 	int i, block;
 	for (i = 0; i < Array_Elems(definedCustomBlocks); i++) {
@@ -768,6 +799,8 @@ static void OnReset(void) {
 		Blocks.CanPlace[block]  = true;
 		Blocks.CanDelete[block] = true;
 	}
+
+	Block_InitPortal();
 }
 
 static void* AllocBlockArray(cc_uint32 elemSize) {

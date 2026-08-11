@@ -1076,6 +1076,44 @@ float physics_airAccel    = 0.02f;
 /* earlier in this file - see PhysicsComp_MoveAirstrafe.                    */
 cc_bool physics_airstrafeEnabled = false;
 
+/* Portal link state, set via /client portal in Commands.c. Only one linked  */
+/* pair is supported at a time - running the command again after a pair is  */
+/* already linked starts a fresh pair. */
+cc_bool portal_hasA = false, portal_hasB = false;
+IVec3   portal_posA, portal_posB;
+/* Ticks left before a portal can trigger again - prevents immediately      */
+/* teleporting straight back the instant you arrive at the destination.     */
+static int portal_cooldown = 0;
+
+static void PhysicsComp_CheckPortal(struct Entity* entity) {
+	IVec3 pos;
+	IVec3* dest = NULL;
+	struct LocationUpdate update;
+
+	if (portal_cooldown > 0) { portal_cooldown--; return; }
+	if (!portal_hasA || !portal_hasB) return;
+
+	pos.x = Math_Floor(entity->Position.x);
+	pos.y = Math_Floor(entity->Position.y);
+	pos.z = Math_Floor(entity->Position.z);
+
+	if (pos.x == portal_posA.x && pos.y == portal_posA.y && pos.z == portal_posA.z) {
+		dest = &portal_posB;
+	} else if (pos.x == portal_posB.x && pos.y == portal_posB.y && pos.z == portal_posB.z) {
+		dest = &portal_posA;
+	}
+	if (!dest) return;
+
+	update.pos.x = dest->x + 0.5f;
+	update.pos.y = dest->y + 0.01f;
+	update.pos.z = dest->z + 0.5f;
+	update.flags = LU_HAS_POS;
+	entity->VTABLE->SetLocation(entity, &update);
+
+	/* 10 ticks (0.5s) before this or the destination portal can trigger again */
+	portal_cooldown = 10;
+}
+
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct Entity* entity   = comp->Entity;
 	struct HacksComp* hacks = comp->Hacks;
@@ -1145,6 +1183,8 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	}
 
 	if (entity->OnGround) comp->MultiJumps = 0;
+
+	PhysicsComp_CheckPortal(entity);
 }
 
 static double PhysicsComp_YPosAt(int t, float u) {

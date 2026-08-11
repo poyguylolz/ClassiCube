@@ -82,6 +82,12 @@ enum BLOCKID {
 	/* Max block ID used in original classic plus CPE blocks. */
 	BLOCK_MAX_CPE = BLOCK_STONE_BRICK,
 
+	/* Client-added custom block - teleports the player when walked into,   */
+	/* see /client portal in Commands.c. 768 is deliberately the very first */
+	/* ID made available by extending BLOCK_MAX_DEFINED past the old 0x2FF  */
+	/* (767) ceiling. Defined in Block_InitPortal(), Block.c.               */
+	BLOCK_PORTAL = 768,
+
 #if defined EXTENDED_BLOCKS
 	BLOCK_MAX_DEFINED = 0xFFFF,
 #elif defined CC_BUILD_TINYMEM

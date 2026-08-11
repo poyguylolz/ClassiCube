@@ -1127,6 +1127,50 @@ static struct ChatCommand AirstrafeSpeedoCommand = {
 };
 
 /*########################################################################################################################*
+*-------------------------------------------------------PortalCommand-----------------------------------------------------*
+*#########################################################################################################################*/
+static void Portal_Execute(const cc_string* args, int argsCount) {
+	extern cc_bool portal_hasA, portal_hasB;
+	extern IVec3   portal_posA, portal_posB;
+	IVec3 pos;
+
+	if (!Game_SelectedPos.valid) {
+		Chat_AddRaw("&cLook at a block first - the portal is placed next to it.");
+		return;
+	}
+	pos = Game_SelectedPos.translatedPos;
+
+	if (!portal_hasA || (portal_hasA && portal_hasB)) {
+		/* Starting a fresh pair - either nothing placed yet, or the previous */
+		/* pair was already complete and this begins a new one.               */
+		portal_posA = pos;
+		portal_hasA = true;
+		portal_hasB = false;
+		Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
+		Chat_AddRaw("&aFirst portal placed. Look at a second spot and run &f/client portal &aagain to link them.");
+		return;
+	}
+
+	/* First portal already placed, not linked yet - this one completes the pair */
+	portal_posB = pos;
+	portal_hasB = true;
+	Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
+	Chat_AddRaw("&aSecond portal placed and linked - walk into either one to teleport.");
+}
+
+static struct ChatCommand PortalCommand = {
+	"Portal", Portal_Execute,
+	0,
+	{
+		"&a/client portal",
+		"&ePlaces a portal block (id 768) at whatever you're looking at.",
+		"&eRun it once to place the first portal, then look somewhere else",
+		"&eand run it again to place + link the second one. Walking into",
+		"&eeither one instantly teleports you to the other.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1152,6 +1196,7 @@ static void OnInit(void) {
 	Commands_Register(&AirstrafeTickrateCommand);
 	Commands_Register(&AirstrafeStopspeedCommand);
 	Commands_Register(&AirstrafeSpeedoCommand);
+	Commands_Register(&PortalCommand);
 }
 
 static void OnFree(void) {
