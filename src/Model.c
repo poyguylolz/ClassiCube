@@ -2316,8 +2316,9 @@ static void RecalcProperties(struct Entity* e) {
 
 	if (block > 0) {
 		// Change the block that the player is holding
-		if (block < BLOCK_COUNT) e->ModelBlock = block;
-		else e->ModelBlock = BLOCK_AIR;
+		// (block is a BlockID, and BLOCK_COUNT is now 65536 - the full range of
+		//  that type - so every possible block value is already in range here)
+		e->ModelBlock = block;
 
 		Vec3_Set(e->ModelScale, 1, 1, 1);
 		Entity_UpdateModelBounds(e); // Adjust size/modelAABB after changing model scale
