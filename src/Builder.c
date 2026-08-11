@@ -1,4 +1,4 @@
-#include "Builder.h"
+﻿#include "Builder.h"
 #include "Constants.h"
 #include "World.h"
 #include "Funcs.h"
@@ -189,7 +189,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 
 				if (Builder_Counts[index] == 0 ||
 					(x == 0 && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(x != 0 && (Blocks.Hidden[tileIdx + Builder_Chunk[cIndex - 1]] & FACE_BIT_XMIN) != 0)) {
+					(x != 0 && Block_IsFaceHidden(b, Builder_Chunk[cIndex - 1], FACE_XMIN))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchZ(index, x, y, z, cIndex, b, FACE_XMIN);
@@ -198,7 +198,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 				index++;
 				if (Builder_Counts[index] == 0 ||
 					(x == World.MaxX && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(x != World.MaxX && (Blocks.Hidden[tileIdx + Builder_Chunk[cIndex + 1]] & FACE_BIT_XMAX) != 0)) {
+					(x != World.MaxX && Block_IsFaceHidden(b, Builder_Chunk[cIndex + 1], FACE_XMAX))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchZ(index, x, y, z, cIndex, b, FACE_XMAX);
@@ -207,7 +207,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 				index++;
 				if (Builder_Counts[index] == 0 ||
 					(z == 0 && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(z != 0 && (Blocks.Hidden[tileIdx + Builder_Chunk[cIndex - EXTCHUNK_SIZE]] & FACE_BIT_ZMIN) != 0)) {
+					(z != 0 && Block_IsFaceHidden(b, Builder_Chunk[cIndex - EXTCHUNK_SIZE], FACE_ZMIN))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_ZMIN);
@@ -216,7 +216,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 				index++;
 				if (Builder_Counts[index] == 0 ||
 					(z == World.MaxZ && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(z != World.MaxZ && (Blocks.Hidden[tileIdx + Builder_Chunk[cIndex + EXTCHUNK_SIZE]] & FACE_BIT_ZMAX) != 0)) {
+					(z != World.MaxZ && Block_IsFaceHidden(b, Builder_Chunk[cIndex + EXTCHUNK_SIZE], FACE_ZMAX))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_ZMAX);
@@ -224,7 +224,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 
 				index++;
 				if (Builder_Counts[index] == 0 || y == 0 ||
-					(Blocks.Hidden[tileIdx + Builder_Chunk[cIndex - EXTCHUNK_SIZE_2]] & FACE_BIT_YMIN) != 0) {
+					Block_IsFaceHidden(b, Builder_Chunk[cIndex - EXTCHUNK_SIZE_2], FACE_YMIN)) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_YMIN);
@@ -232,7 +232,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 
 				index++;
 				if (Builder_Counts[index] == 0 ||
-					(Blocks.Hidden[tileIdx + Builder_Chunk[cIndex + EXTCHUNK_SIZE_2]] & FACE_BIT_YMAX) != 0) {
+					Block_IsFaceHidden(b, Builder_Chunk[cIndex + EXTCHUNK_SIZE_2], FACE_YMAX)) {
 					Builder_Counts[index] = 0;
 				} else if (b < BLOCK_WATER || b > BLOCK_STILL_LAVA) {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_YMAX);
@@ -1671,3 +1671,4 @@ struct IGameComponent Builder_Component = {
 	NULL, /* OnNewMap */
 	OnNewMapLoaded /* OnNewMapLoaded */
 };
+

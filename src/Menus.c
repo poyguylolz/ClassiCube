@@ -2462,23 +2462,62 @@ static struct TexIdsOverlay {
 	int xOffset, yOffset, tileSize, textVertices;
 	struct TextAtlas idAtlas;
 	struct TextWidget title;
-	struct Widget* __widgets[1];
+	struct ButtonWidget left, right;
+	int page;
+	struct Widget* __widgets[3];
 } TexIdsOverlay;
 
 #define TEXIDS_MAX_ROWS_PER_PAGE 16
 #define TEXIDS_MAX_PER_PAGE      (TEXIDS_MAX_ROWS_PER_PAGE * ATLAS2D_TILES_PER_ROW)
-#define TEXIDS_TEXT_VERTICES (10 * 4 + 90 * 8 + 412 * 12) /* '0'-'9' + '10'-'99' + '100'-'511' */
-#define TEXIDS_MAX_VERTICES (TEXTWIDGET_MAX + 4 * ATLAS1D_MAX_ATLASES + TEXIDS_TEXT_VERTICES)
+#define TEXIDS_TEXT_VERTICES     (TEXIDS_MAX_PER_PAGE * 16) /* Max 4 digits per tile (0-1023) * 4 verts/digit */
+#define TEXIDS_MAX_VERTICES      (TEXTWIDGET_MAX + BUTTONWIDGET_MAX * 2 + 4 * TEXIDS_MAX_PER_PAGE + TEXIDS_TEXT_VERTICES)
+
+static void TexIdsOverlay_UpdatePage(struct TexIdsOverlay* s) {
+	int pages = Math_CeilDiv(Atlas2D.RowsCount, TEXIDS_MAX_ROWS_PER_PAGE);
+	Widget_SetDisabled(&s->left,  s->page <= 0);
+	Widget_SetDisabled(&s->right, s->page >= pages - 1);
+
+	cc_string str; char strBuffer[STRING_SIZE];
+	struct FontDesc titleFont;
+	int num;
+
+	String_InitArray(str, strBuffer);
+	String_AppendConst(&str, "Texture ID reference sheet");
+
+	if (pages > 1) {
+		num = s->page + 1;
+		String_Format2(&str, " &7(page %i/%i)", &num, &pages);
+	}
+	
+	Gui_MakeTitleFont(&titleFont);
+	TextWidget_Set(&s->title, &str, &titleFont);
+	Font_Free(&titleFont);
+}
+
+static void TexIdsOverlay_PageClick(struct TexIdsOverlay* s, cc_bool forward) {
+	int pages = Math_CeilDiv(Atlas2D.RowsCount, TEXIDS_MAX_ROWS_PER_PAGE);
+	int delta = forward ? 1 : -1;
+	
+	s->page += delta;
+	if (s->page < 0) s->page = 0;
+	if (s->page >= pages) s->page = pages - 1;
+	
+	TexIdsOverlay_UpdatePage(s);
+	s->dirty = true;
+}
+
+static void TexIdsOverlay_MoveBackwards(void* screen, void* b) { TexIdsOverlay_PageClick((struct TexIdsOverlay*)screen, false); }
+static void TexIdsOverlay_MoveForwards(void* screen, void* b)  { TexIdsOverlay_PageClick((struct TexIdsOverlay*)screen, true); }
 
 static void TexIdsOverlay_Layout(void* screen) {
 	struct TexIdsOverlay* s = (struct TexIdsOverlay*)screen;
-	int size;
+	int size, halfWidth;
 
 	size = Window_UI.Height / ATLAS2D_TILES_PER_ROW;
 	size = (size / 8) * 8;
 	Math_Clamp(size, 8, 40);
 
-	s->xOffset  = Gui_CalcPos(ANCHOR_CENTRE, 0, size * Atlas2D.RowsCount,     Window_UI.Width);
+	s->xOffset  = Gui_CalcPos(ANCHOR_CENTRE, 0, size * ATLAS2D_TILES_PER_ROW, Window_UI.Width);
 	s->yOffset  = Gui_CalcPos(ANCHOR_CENTRE, 0, size * ATLAS2D_TILES_PER_ROW, Window_UI.Height);
 	s->tileSize = size;
 
@@ -2486,6 +2525,10 @@ static void TexIdsOverlay_Layout(void* screen) {
 	Widget_SetLocation(&s->title, ANCHOR_CENTRE, ANCHOR_MIN, 0, 0);
 	s->title.yOffset = s->yOffset - Display_ScaleY(30);
 	Widget_Layout(&s->title);
+
+	halfWidth = (size * ATLAS2D_TILES_PER_ROW) / 2;
+	Widget_SetLocation(&s->left,  ANCHOR_CENTRE, ANCHOR_CENTRE, -halfWidth - 30, 0);
+	Widget_SetLocation(&s->right, ANCHOR_CENTRE, ANCHOR_CENTRE,  halfWidth + 30, 0);
 }
 
 static void TexIdsOverlay_ContextLost(void* screen) {
@@ -2507,62 +2550,62 @@ static void TexIdsOverlay_ContextRecreated(void* screen) {
 	Font_Free(&textFont);
 	
 	Gui_MakeTitleFont(&titleFont);
-	TextWidget_SetConst(&s->title, "Texture ID reference sheet", &titleFont);
+	TexIdsOverlay_UpdatePage(s);
+	ButtonWidget_SetConst(&s->left,  "<", &titleFont);
+	ButtonWidget_SetConst(&s->right, ">", &titleFont);
 	Font_Free(&titleFont);
 }
 
 static void TexIdsOverlay_BuildTerrain(struct TexIdsOverlay* s, struct VertexTextured** ptr) {
 	struct Texture tex;
 	int baseLoc, xOffset;
-	int i, row, size;
+	int i, size, maxRows, rows;
 
 	size    = s->tileSize;
-	baseLoc = 0;
+	baseLoc = s->page * TEXIDS_MAX_PER_PAGE;
 	xOffset = s->xOffset;
 
 	tex.uv.u1 = 0.0f; tex.uv.u2 = UV2_Scale;
 	tex.width = size; tex.height = size;
 
-	for (row = 0; row < Atlas2D.RowsCount; row += TEXIDS_MAX_ROWS_PER_PAGE) {
-		for (i = 0; i < TEXIDS_MAX_PER_PAGE; i++) {
+	maxRows = Atlas2D.RowsCount - s->page * TEXIDS_MAX_ROWS_PER_PAGE;
+	rows    = min(maxRows, TEXIDS_MAX_ROWS_PER_PAGE);
 
-			tex.x = xOffset    + Atlas2D_TileX(i) * size;
-			tex.y = s->yOffset + Atlas2D_TileY(i) * size;
+	for (i = 0; i < rows * ATLAS2D_TILES_PER_ROW; i++) {
+		tex.x = xOffset    + Atlas2D_TileX(i) * size;
+		tex.y = s->yOffset + Atlas2D_TileY(i) * size;
 
-			tex.uv.v1 = Atlas1D_RowId(i + baseLoc) * Atlas1D.InvTileSize;
-			tex.uv.v2 = tex.uv.v1      + UV2_Scale * Atlas1D.InvTileSize;
-			
-			Gfx_Make2DQuad(&tex, PACKEDCOL_WHITE, ptr);
-		}
-
-		baseLoc += TEXIDS_MAX_PER_PAGE;
-		xOffset += size * ATLAS2D_TILES_PER_ROW;
+		tex.uv.v1 = Atlas1D_RowId(i + baseLoc) * Atlas1D.InvTileSize;
+		tex.uv.v2 = tex.uv.v1      + UV2_Scale * Atlas1D.InvTileSize;
+		
+		Gfx_Make2DQuad(&tex, PACKEDCOL_WHITE, ptr);
 	}
 }
 
 static void TexIdsOverlay_BuildText(struct TexIdsOverlay* s, struct VertexTextured** ptr) {
 	struct TextAtlas* idAtlas;
 	struct VertexTextured* beg;
-	int xOffset, size, row;
-	int x, y, id = 0;
+	int xOffset, size;
+	int x, y, id, maxRows, rows;
 
 	size    = s->tileSize;
 	xOffset = s->xOffset;
 	idAtlas = &s->idAtlas;
 	beg     = *ptr;
+	id      = s->page * TEXIDS_MAX_PER_PAGE;
 	
-	for (row = 0; row < Atlas2D.RowsCount; row += TEXIDS_MAX_ROWS_PER_PAGE) {
-		idAtlas->tex.y = s->yOffset + (size - idAtlas->tex.height);
+	maxRows = Atlas2D.RowsCount - s->page * TEXIDS_MAX_ROWS_PER_PAGE;
+	rows    = min(maxRows, TEXIDS_MAX_ROWS_PER_PAGE);
 
-		for (y = 0; y < ATLAS2D_TILES_PER_ROW; y++) {
-			for (x = 0; x < ATLAS2D_TILES_PER_ROW; x++) {
-				idAtlas->curX = xOffset + size * x + 3; /* offset text by 3 pixels */
-				TextAtlas_AddInt(idAtlas, id++, ptr);
-			}
-			idAtlas->tex.y += size;
+	idAtlas->tex.y = s->yOffset + (size - idAtlas->tex.height);
+
+	for (y = 0; y < rows; y++) {
+		for (x = 0; x < ATLAS2D_TILES_PER_ROW; x++) {
+			idAtlas->curX = xOffset + size * x + 3; /* offset text by 3 pixels */
+			TextAtlas_AddInt(idAtlas, id++, ptr);
 		}
-		xOffset += size * ATLAS2D_TILES_PER_ROW;
-	}	
+		idAtlas->tex.y += size;
+	}
 	s->textVertices = (int)(*ptr - beg);
 }
 
@@ -2575,21 +2618,31 @@ static void TexIdsOverlay_BuildMesh(void* screen) {
 	ptr  = &data;
 
 	Widget_BuildMesh(&s->title, ptr);
+	Widget_BuildMesh(&s->left,  ptr);
+	Widget_BuildMesh(&s->right, ptr);
 	TexIdsOverlay_BuildTerrain(s, ptr);
 	TexIdsOverlay_BuildText(s, ptr);
 	Gfx_UnlockDynamicVb(s->vb);
 }
 
 static int TexIdsOverlay_RenderTerrain(struct TexIdsOverlay* s, int offset) {
-	int i, count = Atlas1D.TilesPerAtlas * 4;
-	for (i = 0; i < Atlas1D.Count; i++) 
-	{
-		Atlas1D_Bind(i);
+	int baseLoc = s->page * TEXIDS_MAX_PER_PAGE;
+	int maxRows = Atlas2D.RowsCount - s->page * TEXIDS_MAX_ROWS_PER_PAGE;
+	int rows    = min(maxRows, TEXIDS_MAX_ROWS_PER_PAGE);
+	int count   = rows * ATLAS2D_TILES_PER_ROW;
+	int start   = 0;
 
-		Gfx_DrawVb_IndexedTris_Range(count, offset, DRAW_HINT_SPRITE);
-		offset += count;
+	while (start < count) {
+		int id = baseLoc + start;
+		int atlasIndex = Atlas1D_Index(id);
+		int tilesInAtlas = Atlas1D.TilesPerAtlas - Atlas1D_RowId(id);
+		int drawCount = min(tilesInAtlas, count - start);
+
+		Atlas1D_Bind(atlasIndex);
+		Gfx_DrawVb_IndexedTris_Range(drawCount * 4, offset + start * 4, DRAW_HINT_SPRITE);
+		start += drawCount;
 	}
-	return offset;
+	return offset + count * 4;
 }
 
 static void TexIdsOverlay_OnAtlasChanged(void* screen) {
@@ -2597,17 +2650,23 @@ static void TexIdsOverlay_OnAtlasChanged(void* screen) {
 	s->dirty = true;
 	/* Atlas may have 256 or 512 textures, which changes s->xOffset */
 	/* This can resize the position of the 'pages', so just re-layout */
+	TexIdsOverlay_UpdatePage(s);
 	TexIdsOverlay_Layout(screen);
 }
 
 static void TexIdsOverlay_Init(void* screen) {
 	struct TexIdsOverlay* s = (struct TexIdsOverlay*)screen;
+	int pages = Math_CeilDiv(Atlas2D.RowsCount, TEXIDS_MAX_ROWS_PER_PAGE);
 	s->widgets     = s->__widgets;
 	s->numWidgets  = 0;
 	s->maxWidgets  = Array_Elems(s->__widgets);
 	s->maxVertices = TEXIDS_MAX_VERTICES;
+	s->page        = 0;
 
 	TextWidget_Add(s, &s->title);
+	ButtonWidget_Add(s, &s->left,  40, TexIdsOverlay_MoveBackwards);
+	ButtonWidget_Add(s, &s->right, 40, TexIdsOverlay_MoveForwards);
+
 	Event_Register_(&TextureEvents.AtlasChanged, s, TexIdsOverlay_OnAtlasChanged);
 }
 
@@ -2625,6 +2684,8 @@ static void TexIdsOverlay_Render(void* screen, float delta) {
 	Gfx_BindDynamicVb(s->vb);
 
 	offset = Widget_Render2(&s->title, offset);
+	offset = Widget_Render2(&s->left,  offset);
+	offset = Widget_Render2(&s->right, offset);
 	offset = TexIdsOverlay_RenderTerrain(s, offset);
 
 	Gfx_BindTexture(s->idAtlas.tex.ID);
@@ -2632,7 +2693,19 @@ static void TexIdsOverlay_Render(void* screen, float delta) {
 }
 
 static int TexIdsOverlay_KeyDown(void* screen, int key, struct InputDevice* device) {
-	return false;
+	struct TexIdsOverlay* s = (struct TexIdsOverlay*)screen;
+	if (key == device->leftButton         || key == device->pageUpButton) {
+		TexIdsOverlay_PageClick(s, false);
+	} else if (key == device->rightButton || key == device->pageDownButton) {
+		TexIdsOverlay_PageClick(s, true);
+	} else if (key == CCWHEEL_UP) {
+		TexIdsOverlay_PageClick(s, false);
+	} else if (key == CCWHEEL_DOWN) {
+		TexIdsOverlay_PageClick(s, true);
+	} else {
+		Menu_InputDown(screen, key, device);
+	}
+	return true;
 }
 
 static const struct ScreenVTABLE TexIdsOverlay_VTABLE = {

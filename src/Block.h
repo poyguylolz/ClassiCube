@@ -37,66 +37,64 @@ enum CollideType {
 
 CC_VAR extern struct _BlockLists {
 	/* Whether this block is a liquid. (Like water/lava) */
-	cc_bool IsLiquid[BLOCK_COUNT];
+	cc_bool* IsLiquid;
 	/* Whether this block prevents lights from passing through it. */
-	cc_bool BlocksLight[BLOCK_COUNT];
+	cc_bool* BlocksLight;
 	/* Whether this block is fully bright/light emitting. (Like lava) */
-	cc_uint8 Brightness[BLOCK_COUNT];
+	cc_uint8* Brightness;
 	/* Fog colour when player is inside this block. */
 	/* NOTE: Only applies if fog density is not 0. */
-	PackedCol FogCol[BLOCK_COUNT];
+	PackedCol* FogCol;
 	/* How thick fog is when player is inside this block. */
-	float FogDensity[BLOCK_COUNT];
+	float* FogDensity;
 	/* Basic collision type of this block. (gas, liquid, or solid) */
-	cc_uint8 Collide[BLOCK_COUNT];
+	cc_uint8* Collide;
 	/* Extended collision type of this block, usually same as basic. */
 	/* NOTE: Not always the case. (e.g. ice, water, lava, rope differ) */
-	cc_uint8 ExtendedCollide[BLOCK_COUNT];
+	cc_uint8* ExtendedCollide;
 	/* Speed multiplier when player is touching this block. */
 	/* Can be < 1 to slow player down, or > 1 to speed up. */
-	float SpeedMultiplier[BLOCK_COUNT];
+	float* SpeedMultiplier;
 	/* Bit flags of which faces of this block uses light colour from neighbouring blocks. */
 	/*   e.g. a block with Min.x of 0.0 uses light colour at X-1,Y,Z for XMIN face. */
 	/*   e.g. a block with Min.x of 0.1 uses light colour at X,Y,Z   for XMIN face. */
-	cc_uint8 LightOffset[BLOCK_COUNT];
+	cc_uint8* LightOffset;
 	/* Draw method used when rendering this block. See DrawType enum. */
-	cc_uint8 Draw[BLOCK_COUNT];
+	cc_uint8* Draw;
 	/* Sound played when the player manually destroys this block. See SoundType enum. */
-	cc_uint8 DigSounds[BLOCK_COUNT];
+	cc_uint8* DigSounds;
 	/* Sound played when the player walks on this block. See SoundType enum. */
-	cc_uint8 StepSounds[BLOCK_COUNT];
+	cc_uint8* StepSounds;
 	/* Whether fog colour is used to apply a tint effect to this block. */
-	cc_bool Tinted[BLOCK_COUNT];
+	cc_bool* Tinted;
 	/* Whether this block has an opaque draw type, min of (0,0,0), and max of (1,1,1) */
-	cc_bool FullOpaque[BLOCK_COUNT];
+	cc_bool* FullOpaque;
 	/* Offset/variation mode of this block. (only when drawn as a sprite) */
 	/* Some modes slightly randomly offset blocks to produce nicer looking clumps. */
-	cc_uint8 SpriteOffset[BLOCK_COUNT];
+	cc_uint8* SpriteOffset;
 
 	/* Coordinates of min corner of this block for collisions. */
-	Vec3 MinBB[BLOCK_COUNT];
+	Vec3* MinBB;
 	/* Coordinates of max corner of this block for collisions. */
-	Vec3 MaxBB[BLOCK_COUNT];
+	Vec3* MaxBB;
 	/* Coordinates of min corner of this block for rendering. */
 	/* e.g. ice is very slightly offset horizontally. */
-	Vec3 RenderMinBB[BLOCK_COUNT];
+	Vec3* RenderMinBB;
 	/* Coordinates of max corner of this block for rendering. */
 	/* e.g. ice is very slightly offset horizontally. */
-	Vec3 RenderMaxBB[BLOCK_COUNT];
+	Vec3* RenderMaxBB;
 
 	/* Texture ids of each face of blocks. */
-	TextureLoc Textures[BLOCK_COUNT * FACE_COUNT];
+	TextureLoc* Textures;
 	/* Whether this block is allowed to be placed. */
-	cc_bool CanPlace[BLOCK_COUNT];
+	cc_bool* CanPlace;
 	/* Whether this block is allowed to be deleted. */
-	cc_bool CanDelete[BLOCK_COUNT];
+	cc_bool* CanDelete;
 
-	/* Bit flags of faces hidden of two neighbouring blocks. */
-	cc_uint8 Hidden[BLOCK_COUNT * BLOCK_COUNT];
 	/* Bit flags of which faces of this block can stretch with greedy meshing. */
-	cc_uint8 CanStretch[BLOCK_COUNT];
+	cc_uint8* CanStretch;
 	/* Gravity of particles spawned when this block is broken */
-	float ParticleGravity[BLOCK_COUNT];
+	float* ParticleGravity;
 } Blocks;
 
 #define Block_Tint(col, block)\
@@ -136,8 +134,8 @@ void Block_SetSide(TextureLoc texLoc, BlockID blockId);
 /* The texture for the given face of the given block */
 #define Block_Tex(block, face) Blocks.Textures[(block) * FACE_COUNT + (face)]
 
-/* Whether the given face of this block is occluded/hidden */
-#define Block_IsFaceHidden(block, other, face) (Blocks.Hidden[((block) * BLOCK_COUNT) + (other)] & (1 << (face)))
+/* Dynamically checks whether the given face of this block is occluded/hidden by other */
+cc_bool Block_IsFaceHidden(BlockID block, BlockID other, int face);
 
 /* Whether blocks can be automatically rotated */
 extern cc_bool AutoRotate_Enabled;

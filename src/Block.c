@@ -9,6 +9,7 @@
 #include "Picking.h"
 #include "Lighting.h"
 #include "Audio.h"
+#include "Platform.h"
 
 struct _BlockLists Blocks;
 
@@ -348,23 +349,17 @@ static cc_bool Block_MightCull(BlockID block, BlockID other) {
 	return (bType == COLLIDE_SOLID && oType == COLLIDE_SOLID) || bType != COLLIDE_SOLID;
 }
 
-static void Block_CalcCulling(BlockID block, BlockID other) {
+cc_bool Block_IsFaceHidden(BlockID block, BlockID other, int face) {
 	Vec3 bMin, bMax, oMin, oMax;
 	cc_bool occludedX, occludedY, occludedZ, bothLiquid;
 	int f;
 
 	/* Fast path: Full opaque neighbouring blocks will always have all shared faces hidden */
-	if (Blocks.FullOpaque[block] && Blocks.FullOpaque[other]) {
-		Blocks.Hidden[(block * BLOCK_COUNT) + other] = 0x3F;
-		return;
-	}
+	if (Blocks.FullOpaque[block] && Blocks.FullOpaque[other]) return true;
 
 	/* Some blocks may not cull 'other' block, in which case just skip detailed check */
 	/* e.g. sprite blocks, default leaves, will not cull any other blocks */
-	if (!Block_MightCull(block, other)) {	
-		Blocks.Hidden[(block * BLOCK_COUNT) + other] = 0;
-		return;
-	}
+	if (!Block_MightCull(block, other)) return false;
 
 	bMin = Blocks.MinBB[block]; bMax = Blocks.MaxBB[block];
 	oMin = Blocks.MinBB[other]; oMax = Blocks.MaxBB[other];
@@ -388,31 +383,13 @@ static void Block_CalcCulling(BlockID block, BlockID other) {
 	f |= occludedZ && oMin.z == 0.0f && bMax.z == 1.0f ? FACE_BIT_ZMAX : 0;
 	f |= occludedY && (bothLiquid || (oMax.y == 1.0f && bMin.y == 0.0f)) ? FACE_BIT_YMIN : 0;
 	f |= occludedY && (bothLiquid || (oMin.y == 0.0f && bMax.y == 1.0f)) ? FACE_BIT_YMAX : 0;
-	Blocks.Hidden[(block * BLOCK_COUNT) + other] = f;
-}
-
-/* Updates culling data of all blocks */
-static void Block_UpdateAllCulling(void) {
-	int block, neighbour;
-
-	for (block = BLOCK_AIR; block < BLOCK_COUNT; block++) {
-		Block_CalcStretch((BlockID)block);
-		for (neighbour = BLOCK_AIR; neighbour < BLOCK_COUNT; neighbour++) {
-			Block_CalcCulling((BlockID)block, (BlockID)neighbour);
-		}
-	}
+	return (f & (1 << face)) != 0;
 }
 
 /* Updates culling data just for this block */
 /* (e.g. whether block can be stretched, visibility with other blocks) */
 static void Block_UpdateCulling(BlockID block) {
-	int neighbour;
 	Block_CalcStretch(block);
-	
-	for (neighbour = BLOCK_AIR; neighbour < BLOCK_COUNT; neighbour++) {
-		Block_CalcCulling(block, (BlockID)neighbour);
-		Block_CalcCulling((BlockID)neighbour, block);
-	}
 }
 
 
@@ -782,9 +759,9 @@ static void OnReset(void) {
 
 	for (block = BLOCK_AIR; block < BLOCK_COUNT; block++) {
 		Block_ResetProps((BlockID)block);
+		Block_CalcStretch((BlockID)block);
 	}
 
-	Block_UpdateAllCulling();
 	Block_RecalculateAllSpriteBB();
 
 	for (block = BLOCK_AIR; block < BLOCK_COUNT; block++) {
@@ -793,9 +770,39 @@ static void OnReset(void) {
 	}
 }
 
+static void* AllocBlockArray(cc_uint32 elemSize) {
+	return Mem_AllocCleared(BLOCK_COUNT, elemSize, "block arrays");
+}
+
 static void OnAtlasChanged(void* obj) { Block_RecalculateAllSpriteBB(); }
 static void OnInit(void) {
 	AutoRotate_Enabled = true;
+
+	Blocks.IsLiquid = (cc_bool*)AllocBlockArray(sizeof(cc_bool));
+	Blocks.BlocksLight = (cc_bool*)AllocBlockArray(sizeof(cc_bool));
+	Blocks.Brightness = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.FogCol = (PackedCol*)AllocBlockArray(sizeof(PackedCol));
+	Blocks.FogDensity = (float*)AllocBlockArray(sizeof(float));
+	Blocks.Collide = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.ExtendedCollide = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.SpeedMultiplier = (float*)AllocBlockArray(sizeof(float));
+	Blocks.LightOffset = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.Draw = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.DigSounds = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.StepSounds = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.Tinted = (cc_bool*)AllocBlockArray(sizeof(cc_bool));
+	Blocks.FullOpaque = (cc_bool*)AllocBlockArray(sizeof(cc_bool));
+	Blocks.SpriteOffset = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.MinBB = (Vec3*)AllocBlockArray(sizeof(Vec3));
+	Blocks.MaxBB = (Vec3*)AllocBlockArray(sizeof(Vec3));
+	Blocks.RenderMinBB = (Vec3*)AllocBlockArray(sizeof(Vec3));
+	Blocks.RenderMaxBB = (Vec3*)AllocBlockArray(sizeof(Vec3));
+	Blocks.Textures = (TextureLoc*)Mem_AllocCleared(BLOCK_COUNT * FACE_COUNT, sizeof(TextureLoc), "block textures");
+	Blocks.CanPlace = (cc_bool*)AllocBlockArray(sizeof(cc_bool));
+	Blocks.CanDelete = (cc_bool*)AllocBlockArray(sizeof(cc_bool));
+	Blocks.CanStretch = (cc_uint8*)AllocBlockArray(sizeof(cc_uint8));
+	Blocks.ParticleGravity = (float*)AllocBlockArray(sizeof(float));
+
 	Event_Register_(&TextureEvents.AtlasChanged, NULL, OnAtlasChanged);
 	OnReset();
 }

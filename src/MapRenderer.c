@@ -80,7 +80,7 @@ CC_NOINLINE static int MapRenderer_UsedAtlases(void) {
 	TextureLoc maxLoc = 0;
 	int i;
 
-	for (i = 0; i < Array_Elems(Blocks.Textures); i++) {
+	for (i = 0; i < (BLOCK_COUNT * FACE_COUNT); i++) {
 		maxLoc = max(maxLoc, Blocks.Textures[i]);
 	}
 	return Atlas1D_Index(maxLoc) + 1;

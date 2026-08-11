@@ -22,7 +22,7 @@ extern struct IGameComponent Textures_Component;
 #define ATLAS2D_SHIFT 4
 /* Maximum supported number of rows in the atlas. */
 #if defined EXTENDED_TEXTURES
-	#define ATLAS2D_MAX_ROWS_COUNT 32
+	#define ATLAS2D_MAX_ROWS_COUNT 128
 #elif defined CC_BUILD_TINYMEM
 	#define ATLAS2D_MAX_ROWS_COUNT  8
 #else
