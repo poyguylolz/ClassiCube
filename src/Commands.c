@@ -3,6 +3,7 @@
 #include "String_.h"
 #include "Event.h"
 #include "Game.h"
+#include "Picking.h"
 #include "Logger.h"
 #include "Server.h"
 #include "World.h"
@@ -1171,6 +1172,29 @@ static struct ChatCommand PortalCommand = {
 };
 
 /*########################################################################################################################*
+*-----------------------------------------------------PortalViewCommand---------------------------------------------------*
+*#########################################################################################################################*/
+static void PortalView_Execute(const cc_string* args, int argsCount) {
+	extern cc_bool portal_previewEnabled;
+	portal_previewEnabled = !portal_previewEnabled;
+
+	Chat_AddRaw(portal_previewEnabled
+		? "&aPortal preview &2enabled&a - renders the world a second time every frame, may cost FPS."
+		: "&aPortal preview &cdisabled&a.");
+}
+
+static struct ChatCommand PortalViewCommand = {
+	"PortalView", PortalView_Execute,
+	0,
+	{
+		"&a/client portalview",
+		"&eToggles a picture-in-picture inset showing the destination of",
+		"&ewhichever linked portal you're further from, angled to match",
+		"&eyour own look direction. Costs real FPS - renders the world twice.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1197,6 +1221,7 @@ static void OnInit(void) {
 	Commands_Register(&AirstrafeStopspeedCommand);
 	Commands_Register(&AirstrafeSpeedoCommand);
 	Commands_Register(&PortalCommand);
+	Commands_Register(&PortalViewCommand);
 }
 
 static void OnFree(void) {

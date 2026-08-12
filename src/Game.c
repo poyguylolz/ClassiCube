@@ -550,6 +550,70 @@ static void Render3D_Anaglyph(float delta, float t) {
 	Gfx_End3D(&proj, &view);
 }
 
+/* Renders a small picture-in-picture inset showing the world as seen from  */
+/* whichever linked portal you're further from, angled to match your own    */
+/* current look direction (position from the portal, angle from you - see   */
+/* PhysicsComp_CheckPortal/portal_hasA/B in EntityComponents.c for the rest  */
+/* of the portal feature). This is a second full render of the visible      */
+/* world into a viewport-restricted corner of the screen - not a texture    */
+/* applied to the portal block itself, so it won't line up with the block's */
+/* on-screen position/shape. Toggled via /client portalview.                */
+static void PortalPreview_Render(float delta, float t) {
+	extern cc_bool portal_hasA, portal_hasB, portal_previewEnabled;
+	extern IVec3   portal_posA, portal_posB;
+	struct Matrix projSaved, viewSaved, proj, view;
+	Vec3 camPos, playerPos;
+	Vec2 rot;
+	IVec3* dest;
+	float distA, distB, dx, dz, fovy, aspect;
+	int vx, vy, vw, vh;
+
+	if (!portal_previewEnabled || !portal_hasA || !portal_hasB) return;
+
+	playerPos = Camera.CurrentPos;
+	dx = playerPos.x - (portal_posA.x + 0.5f);
+	dz = playerPos.z - (portal_posA.z + 0.5f);
+	distA = dx * dx + dz * dz;
+	dx = playerPos.x - (portal_posB.x + 0.5f);
+	dz = playerPos.z - (portal_posB.z + 0.5f);
+	distB = dx * dx + dz * dz;
+
+	/* Show whichever portal you're further from - i.e. as you approach one, */
+	/* the inset shows what's waiting for you at the other end.              */
+	dest = (distA >= distB) ? &portal_posA : &portal_posB;
+
+	camPos.x = dest->x + 0.5f;
+	camPos.y = dest->y + 1.5f; /* roughly standing eye-height within the block */
+	camPos.z = dest->z + 0.5f;
+	rot = Camera.Active->GetOrientation();
+
+	vw = Game.Width  / 4;
+	vh = Game.Height / 4;
+	vx = Game.Width  - vw - 10;
+	vy = 10;
+
+	projSaved = Gfx.Projection;
+	viewSaved = Gfx.View;
+
+	fovy   = Camera.Fov * MATH_DEG2RAD;
+	aspect = (float)vw / (float)vh;
+	Gfx_CalcPerspectiveMatrix(&proj, fovy, aspect, (float)Game_ViewDistance);
+	Matrix_LookRot(&view, camPos, rot);
+	Gfx.Projection = proj;
+	Gfx.View       = view;
+
+	Gfx_SetViewport(vx, vy, vw, vh);
+	Gfx_SetScissor(vx, vy, vw, vh);
+	Gfx_ClearBuffers(GFX_BUFFER_DEPTH);
+
+	Render3DFrame(delta, t);
+
+	Gfx.Projection = projSaved;
+	Gfx.View       = viewSaved;
+	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
+	Gfx_SetScissor(0, 0, Game.Width, Game.Height);
+}
+
 static void PerformScheduledTasks(float time) {
 	struct ScheduledTask2* task = tasks_head;
 	struct ScheduledTask2* next;
@@ -668,6 +732,7 @@ static CC_INLINE void Game_DrawFrame(float delta, float t) {
 		} else {
 			Render3DFrame(delta, t);
 		}
+		PortalPreview_Render(delta, t);
 	} else {
 		RayTracer_SetInvalid(&Game_SelectedPos);
 	}

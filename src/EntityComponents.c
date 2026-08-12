@@ -1081,6 +1081,8 @@ cc_bool physics_airstrafeEnabled = false;
 /* already linked starts a fresh pair. */
 cc_bool portal_hasA = false, portal_hasB = false;
 IVec3   portal_posA, portal_posB;
+/* Toggled by /client portalview in Commands.c - see PortalPreview_Render in Game.c */
+cc_bool portal_previewEnabled = false;
 /* Ticks left before a portal can trigger again - prevents immediately      */
 /* teleporting straight back the instant you arrive at the destination.     */
 static int portal_cooldown = 0;
