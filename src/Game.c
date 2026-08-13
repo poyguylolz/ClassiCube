@@ -558,17 +558,37 @@ static void Render3D_Anaglyph(float delta, float t) {
 /* world into a viewport-restricted corner of the screen - not a texture    */
 /* applied to the portal block itself, so it won't line up with the block's */
 /* on-screen position/shape. Toggled via /client portalview.                */
+/*                                                                            */
+/* Overrides Camera.CurrentPos rather than setting Gfx.View directly -       */
+/* Render3DFrame's very first line is Camera.Active->GetView(&Gfx.View),     */
+/* which unconditionally recomputes the view matrix from Camera.CurrentPos,  */
+/* so setting Gfx.View beforehand gets immediately overwritten. Overriding   */
+/* CurrentPos lets that existing computation do the right thing instead of   */
+/* fighting it, and correctly carries through to everything else in that     */
+/* render (frustum culling, entity sorting, etc.) being relative to the      */
+/* portal's position rather than the player's.                              */
+/* FOV, aspect ratio and view distance all match the player's own camera -   */
+/* Camera.Fov and Game_ViewDistance are reused directly, and vw/vh are the   */
+/* full window size divided by the same factor, so the aspect ratio is       */
+/* identical too. Frustum culling of unseen chunks happens automatically:    */
+/* Render3DFrame recalculates Frustum_CalcPlanes from whatever Gfx.View/     */
+/* Gfx.Projection currently are on every single call, so this gets a         */
+/* correctly-culled render for the portal's own view for free.              */
 static void PortalPreview_Render(float delta, float t) {
 	extern cc_bool portal_hasA, portal_hasB, portal_previewEnabled;
 	extern IVec3   portal_posA, portal_posB;
-	struct Matrix projSaved, viewSaved, proj, view;
-	Vec3 camPos, playerPos;
-	Vec2 rot;
+	Vec3 camPos, playerPos, savedCamPos;
 	IVec3* dest;
 	float distA, distB, dx, dz, fovy, aspect;
 	int vx, vy, vw, vh;
+	struct Matrix projSaved, proj;
 
 	if (!portal_previewEnabled || !portal_hasA || !portal_hasB) return;
+	/* Both portal blocks must still actually be there - see the matching    */
+	/* check in PhysicsComp_CheckPortal, which is what actually clears       */
+	/* portal_hasA/portal_hasB once either block is broken.                  */
+	if (World_GetBlock(portal_posA.x, portal_posA.y, portal_posA.z) != BLOCK_PORTAL) return;
+	if (World_GetBlock(portal_posB.x, portal_posB.y, portal_posB.z) != BLOCK_PORTAL) return;
 
 	playerPos = Camera.CurrentPos;
 	dx = playerPos.x - (portal_posA.x + 0.5f);
@@ -585,7 +605,6 @@ static void PortalPreview_Render(float delta, float t) {
 	camPos.x = dest->x + 0.5f;
 	camPos.y = dest->y + 1.5f; /* roughly standing eye-height within the block */
 	camPos.z = dest->z + 0.5f;
-	rot = Camera.Active->GetOrientation();
 
 	vw = Game.Width  / 4;
 	vh = Game.Height / 4;
@@ -593,14 +612,14 @@ static void PortalPreview_Render(float delta, float t) {
 	vy = 10;
 
 	projSaved = Gfx.Projection;
-	viewSaved = Gfx.View;
 
 	fovy   = Camera.Fov * MATH_DEG2RAD;
-	aspect = (float)vw / (float)vh;
+	aspect = (float)vw / (float)vh; /* Game.Width/4 over Game.Height/4 == same ratio as the real screen */
 	Gfx_CalcPerspectiveMatrix(&proj, fovy, aspect, (float)Game_ViewDistance);
-	Matrix_LookRot(&view, camPos, rot);
 	Gfx.Projection = proj;
-	Gfx.View       = view;
+
+	savedCamPos       = Camera.CurrentPos;
+	Camera.CurrentPos = camPos;
 
 	Gfx_SetViewport(vx, vy, vw, vh);
 	Gfx_SetScissor(vx, vy, vw, vh);
@@ -608,8 +627,8 @@ static void PortalPreview_Render(float delta, float t) {
 
 	Render3DFrame(delta, t);
 
-	Gfx.Projection = projSaved;
-	Gfx.View       = viewSaved;
+	Camera.CurrentPos = savedCamPos;
+	Gfx.Projection     = projSaved;
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
 	Gfx_SetScissor(0, 0, Game.Width, Game.Height);
 }

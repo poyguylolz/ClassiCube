@@ -1092,8 +1092,21 @@ static void PhysicsComp_CheckPortal(struct Entity* entity) {
 	IVec3* dest = NULL;
 	struct LocationUpdate update;
 
-	if (portal_cooldown > 0) { portal_cooldown--; return; }
 	if (!portal_hasA || !portal_hasB) return;
+
+	/* If either portal block has actually been broken, forget the link      */
+	/* entirely rather than keep teleporting to/from coordinates that no     */
+	/* longer have a portal block there. Checked every tick (not just when   */
+	/* standing on a portal) so this is caught promptly either way.          */
+	if (World_GetBlock(portal_posA.x, portal_posA.y, portal_posA.z) != BLOCK_PORTAL ||
+		World_GetBlock(portal_posB.x, portal_posB.y, portal_posB.z) != BLOCK_PORTAL) {
+		portal_hasA = false;
+		portal_hasB = false;
+		Chat_AddRaw("&ePortal link broken - one of the portal blocks was removed.");
+		return;
+	}
+
+	if (portal_cooldown > 0) { portal_cooldown--; return; }
 
 	pos.x = Math_Floor(entity->Position.x);
 	pos.y = Math_Floor(entity->Position.y);
