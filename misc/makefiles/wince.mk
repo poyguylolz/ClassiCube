@@ -1,8 +1,6 @@
-#-----------------------------
-# Configurable flags and names
-#-----------------------------
 SOURCE_DIRS := src src/wince third_party/bearssl
 BUILD_DIR	:= build/wince
+TARGET 		:= ClassiCube
 WINCE_ARCH	?= armv4
 
 CFLAGS	:= -DUNICODE -D_WIN32_WCE -std=gnu99 -fno-ident
@@ -10,8 +8,7 @@ LDFLAGS	:=
 LIBS 	:= -lcoredll -lws2
 include misc/makefiles/common_config.mk
 
-ICON_OBJ 	:= $(BUILD_DIR)/ccicon.o
-OBJECTS		+= $(ICON_OBJ)
+default: $(TARGET).exe
 
 
 #-----------------------------
@@ -34,15 +31,25 @@ endif
 
 
 #-----------------------------
+# Icon generation
+#-----------------------------
+ICON_OBJ := $(BUILD_DIR)/ccicon.o
+OBJECTS	 += $(ICON_OBJ)
+
+$(ICON_OBJ): misc/windows/CCicon.rc
+	$(WINDRES) $< -o $@
+
+src/wince/Window_WinCE.c: $(ICON_OBJ)
+
+
+#-----------------------------
 # Executable generation
 #-----------------------------
 OEXT    := .exe
 include misc/makefiles/common_build.mk
 
 
-#-----------------------------
-# Icon generation
-#-----------------------------
-$(ICON_OBJ): misc/windows/CCicon.rc
-	$(WINDRES) $< -o $@
-
+#---------------------------------------------------------------------------------
+# common targets
+#---------------------------------------------------------------------------------
+include misc/makefiles/common_targets.mk
