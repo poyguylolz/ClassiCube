@@ -603,18 +603,24 @@ static void PortalPreview_Render(float delta, float t) {
 	dest = (distA >= distB) ? &portal_posA : &portal_posB;
 
 	camPos.x = dest->x + 0.5f;
-	camPos.y = dest->y + 1.5f; /* roughly standing eye-height within the block */
+	camPos.y = dest->y; /* eye height 0 - camera sits at the block's base */
 	camPos.z = dest->z + 0.5f;
 
-	vw = Game.Width  / 4;
-	vh = Game.Height / 4;
-	vx = Game.Width  - vw - 10;
+	vw = Game.Width / 4;
+	vh = vw; /* force a 1:1 square aspect ratio */
+	vx = Game.Width - vw - 10;
 	vy = 10;
+	if (CC_GFX_BACKEND_IS_GL()) {
+		/* Gfx_SetViewport doesn't flip Y for GL backends the way Gfx_SetScissor  */
+		/* does internally (see _GLShared.h) - OpenGL's native origin is bottom-  */
+		/* left, so convert our top-down vy into the equivalent bottom-up value.  */
+		vy = Game.Height - vh - vy;
+	}
 
 	projSaved = Gfx.Projection;
 
 	fovy   = Camera.Fov * MATH_DEG2RAD;
-	aspect = (float)vw / (float)vh; /* Game.Width/4 over Game.Height/4 == same ratio as the real screen */
+	aspect = (float)vw / (float)vh; /* always 1.0 now that vh is forced equal to vw */
 	Gfx_CalcPerspectiveMatrix(&proj, fovy, aspect, (float)Game_ViewDistance);
 	Gfx.Projection = proj;
 
