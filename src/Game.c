@@ -622,7 +622,6 @@ static void PortalPreview_Render(float delta, float t) {
 	Camera.CurrentPos = camPos;
 
 	Gfx_SetViewport(vx, vy, vw, vh);
-	Gfx_SetScissor(vx, vy, vw, vh);
 	Gfx_ClearBuffers(GFX_BUFFER_DEPTH);
 
 	Render3DFrame(delta, t);
@@ -630,7 +629,6 @@ static void PortalPreview_Render(float delta, float t) {
 	Camera.CurrentPos = savedCamPos;
 	Gfx.Projection     = projSaved;
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
-	Gfx_SetScissor(0, 0, Game.Width, Game.Height);
 }
 
 static void PerformScheduledTasks(float time) {
