@@ -577,9 +577,13 @@ static void Render3D_Anaglyph(float delta, float t) {
 static void PortalPreview_Render(float delta, float t) {
 	extern cc_bool portal_hasA, portal_hasB, portal_previewEnabled;
 	extern IVec3   portal_posA, portal_posB;
+	extern float   portal_yawA, portal_yawB;
+	struct Entity* e = &Entities.CurPlayer->Base;
 	Vec3 camPos, playerPos, savedCamPos;
 	IVec3* dest;
 	float distA, distB, dx, dz, fovy, aspect;
+	float angleOffset, savedYaw;
+	cc_bool savedThirdPerson;
 	int vx, vy, vw, vh;
 	struct Matrix projSaved, proj;
 
@@ -603,8 +607,35 @@ static void PortalPreview_Render(float delta, float t) {
 	dest = (distA >= distB) ? &portal_posA : &portal_posB;
 
 	camPos.x = dest->x + 0.5f;
-	camPos.y = dest->y; /* eye height 0 - camera sits at the block's base */
+	camPos.y = dest->y + 0.5f; /* eye height 0.5 */
 	camPos.z = dest->z + 0.5f;
+
+	/* "Compass" rotation: fake north is the yaw portal A was facing when    */
+	/* placed. angleOffset is how far portal B's own facing sits from that   */
+	/* north - e.g. if B faced fake east (90 right of A), angleOffset is 90. */
+	/* Sign flips depending on which side we're viewing from, so walking     */
+	/* through from either portal rotates consistently relative to the other.*/
+	angleOffset = portal_yawA - portal_yawB;
+	if (dest == &portal_posA) angleOffset = -angleOffset;
+
+	/* GetOrientation() (called inside Render3DFrame via Camera.Active->     */
+	/* GetView) reads e->Yaw/e->Pitch directly - there's no other way to     */
+	/* feed it a custom angle, so the real entity's yaw is temporarily       */
+	/* overridden for the duration of this render and restored after.       */
+	/* +180 is the "inverted x/z" mirror - without it you'd see the portal   */
+	/* as if walking away from it rather than through it, the wrong way      */
+	/* round relative to how the other side actually connects.              */
+	savedYaw = e->Yaw;
+	e->Yaw   = savedYaw + angleOffset + 180.0f;
+
+	/* Forces the local player's own body to render (normally suppressed in  */
+	/* first person) and hides the first-person held-block viewmodel - see   */
+	/* Entity.c:764 and HeldBlockRenderer.c:259, both gated on this exact    */
+	/* flag. Camera.CurrentPos is already set to the portal's exact position */
+	/* below rather than going through ThirdPersonCamera_GetPosition's zoom/ */
+	/* pullback logic at all, so this comes with no distance offset for free.*/
+	savedThirdPerson         = Camera.Active->isThirdPerson;
+	Camera.Active->isThirdPerson = true;
 
 	vw = Game.Width / 4;
 	vh = vw; /* force a 1:1 square aspect ratio */
@@ -634,6 +665,8 @@ static void PortalPreview_Render(float delta, float t) {
 
 	Camera.CurrentPos = savedCamPos;
 	Gfx.Projection     = projSaved;
+	Camera.Active->isThirdPerson = savedThirdPerson;
+	e->Yaw = savedYaw;
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
 }
 

@@ -1133,6 +1133,7 @@ static struct ChatCommand AirstrafeSpeedoCommand = {
 static void Portal_Execute(const cc_string* args, int argsCount) {
 	extern cc_bool portal_hasA, portal_hasB;
 	extern IVec3   portal_posA, portal_posB;
+	extern float   portal_yawA, portal_yawB;
 	IVec3 pos;
 
 	if (!Game_SelectedPos.valid) {
@@ -1145,6 +1146,7 @@ static void Portal_Execute(const cc_string* args, int argsCount) {
 		/* Starting a fresh pair - either nothing placed yet, or the previous */
 		/* pair was already complete and this begins a new one.               */
 		portal_posA = pos;
+		portal_yawA = Entities.CurPlayer->Base.Yaw;
 		portal_hasA = true;
 		portal_hasB = false;
 		Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
@@ -1154,6 +1156,7 @@ static void Portal_Execute(const cc_string* args, int argsCount) {
 
 	/* First portal already placed, not linked yet - this one completes the pair */
 	portal_posB = pos;
+	portal_yawB = Entities.CurPlayer->Base.Yaw;
 	portal_hasB = true;
 	Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
 	Chat_AddRaw("&aSecond portal placed and linked - walk into either one to teleport.");

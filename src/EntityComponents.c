@@ -1081,6 +1081,10 @@ cc_bool physics_airstrafeEnabled = false;
 /* already linked starts a fresh pair. */
 cc_bool portal_hasA = false, portal_hasB = false;
 IVec3   portal_posA, portal_posB;
+/* Yaw the player was facing when each portal was placed - "fake north" is  */
+/* portal A's facing; the angle offset used for the portal preview camera   */
+/* is portal_yawA - portal_yawB. Set in Portal_Execute, Commands.c.         */
+float   portal_yawA = 0.0f, portal_yawB = 0.0f;
 /* Toggled by /client portalview in Commands.c - see PortalPreview_Render in Game.c */
 cc_bool portal_previewEnabled = false;
 /* Ticks left before a portal can trigger again - prevents immediately      */
