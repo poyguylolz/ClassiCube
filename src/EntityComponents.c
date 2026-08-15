@@ -1095,6 +1095,8 @@ static void PhysicsComp_CheckPortal(struct Entity* entity) {
 	IVec3 pos;
 	IVec3* dest = NULL;
 	struct LocationUpdate update;
+	float angleOffset;
+	Vec3 rotatedVel;
 
 	if (!portal_hasA || !portal_hasB) return;
 
@@ -1123,10 +1125,24 @@ static void PhysicsComp_CheckPortal(struct Entity* entity) {
 	}
 	if (!dest) return;
 
+	/* Same compass rotation as PortalPreview_Render in Game.c (not the      */
+	/* extra +180 there - that's only needed to make the mirrored preview    */
+	/* camera look correct, not for actually reorienting the player).        */
+	/* Applied to both facing and velocity via the same Vec3_RotateY3 used   */
+	/* everywhere else in the engine to turn a yaw into a world direction,   */
+	/* so the two stay consistent with each other after teleporting.         */
+	angleOffset = portal_yawA - portal_yawB;
+	if (dest == &portal_posA) angleOffset = -angleOffset;
+	angleOffset = -angleOffset;
+
+	rotatedVel       = Vec3_RotateY3(entity->Velocity.x, entity->Velocity.y, entity->Velocity.z, angleOffset * MATH_DEG2RAD);
+	entity->Velocity = rotatedVel;
+
 	update.pos.x = dest->x + 0.5f;
 	update.pos.y = dest->y + 0.01f;
 	update.pos.z = dest->z + 0.5f;
-	update.flags = LU_HAS_POS;
+	update.yaw   = entity->Yaw + angleOffset;
+	update.flags = LU_HAS_POS | LU_HAS_YAW;
 	entity->VTABLE->SetLocation(entity, &update);
 
 	/* 10 ticks (0.5s) before this or the destination portal can trigger again */

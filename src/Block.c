@@ -765,7 +765,7 @@ static void Block_InitPortal(void) {
 	/* portal to work rather than bumping into a solid wall.                */
 	Blocks.Collide[BLOCK_PORTAL]         = COLLIDE_NONE;
 	Blocks.ExtendedCollide[BLOCK_PORTAL] = COLLIDE_NONE;
-	Blocks.Draw[BLOCK_PORTAL]      = DRAW_TRANSLUCENT;
+	Blocks.Draw[BLOCK_PORTAL]      = DRAW_OPAQUE;
 	Blocks.BlocksLight[BLOCK_PORTAL] = false;
 	Blocks.FullOpaque[BLOCK_PORTAL]  = false;
 	Blocks.CanPlace[BLOCK_PORTAL]  = true;
