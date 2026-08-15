@@ -582,7 +582,7 @@ static void PortalPreview_Render(float delta, float t) {
 	Vec3 camPos, playerPos, savedCamPos;
 	IVec3* dest;
 	float distA, distB, dx, dz, fovy, aspect;
-	float angleOffset, savedYaw;
+	float angleOffset, savedYaw, savedPitch;
 	cc_bool savedThirdPerson;
 	int vx, vy, vw, vh;
 	struct Matrix projSaved, proj;
@@ -617,6 +617,7 @@ static void PortalPreview_Render(float delta, float t) {
 	/* through from either portal rotates consistently relative to the other.*/
 	angleOffset = portal_yawA - portal_yawB;
 	if (dest == &portal_posA) angleOffset = -angleOffset;
+	angleOffset = -angleOffset; /* inverted per request */
 
 	/* GetOrientation() (called inside Render3DFrame via Camera.Active->     */
 	/* GetView) reads e->Yaw/e->Pitch directly - there's no other way to     */
@@ -625,8 +626,10 @@ static void PortalPreview_Render(float delta, float t) {
 	/* +180 is the "inverted x/z" mirror - without it you'd see the portal   */
 	/* as if walking away from it rather than through it, the wrong way      */
 	/* round relative to how the other side actually connects.              */
-	savedYaw = e->Yaw;
-	e->Yaw   = savedYaw + angleOffset + 180.0f;
+	savedYaw   = e->Yaw;
+	savedPitch = e->Pitch;
+	e->Yaw     = savedYaw + angleOffset + 180.0f;
+	e->Pitch   = -savedPitch;
 
 	/* Forces the local player's own body to render (normally suppressed in  */
 	/* first person) and hides the first-person held-block viewmodel - see   */
@@ -666,7 +669,8 @@ static void PortalPreview_Render(float delta, float t) {
 	Camera.CurrentPos = savedCamPos;
 	Gfx.Projection     = projSaved;
 	Camera.Active->isThirdPerson = savedThirdPerson;
-	e->Yaw = savedYaw;
+	e->Yaw   = savedYaw;
+	e->Pitch = savedPitch;
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
 }
 
