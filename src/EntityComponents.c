@@ -1087,18 +1087,22 @@ IVec3   portal_posA, portal_posB;
 float   portal_yawA = 0.0f, portal_yawB = 0.0f;
 /* Toggled by /client portalview in Commands.c - see PortalPreview_Render in Game.c */
 cc_bool portal_previewEnabled = false;
-/* Ticks left before a portal can trigger again - prevents immediately      */
-/* teleporting straight back the instant you arrive at the destination.     */
-static int portal_cooldown = 0;
+/* Which portal (points at &portal_posA or &portal_posB, or NULL) the       */
+/* player was most recently teleported TO. Used to stop them bouncing       */
+/* straight back the instant they arrive, without blocking legitimate fast  */
+/* repeated teleports (e.g. two floor portals set up to loop) the way a     */
+/* flat time-based cooldown would - see PhysicsComp_CheckPortal below.      */
+static IVec3* portal_justArrivedAt = NULL;
 
 static void PhysicsComp_CheckPortal(struct Entity* entity) {
 	IVec3 pos;
-	IVec3* dest = NULL;
+	IVec3* triggered = NULL;
+	IVec3* dest;
 	struct LocationUpdate update;
 	float angleOffset;
 	Vec3 rotatedVel;
 
-	if (!portal_hasA || !portal_hasB) return;
+	if (!portal_hasA || !portal_hasB) { portal_justArrivedAt = NULL; return; }
 
 	/* If either portal block has actually been broken, forget the link      */
 	/* entirely rather than keep teleporting to/from coordinates that no     */
@@ -1108,32 +1112,41 @@ static void PhysicsComp_CheckPortal(struct Entity* entity) {
 		World_GetBlock(portal_posB.x, portal_posB.y, portal_posB.z) != BLOCK_PORTAL) {
 		portal_hasA = false;
 		portal_hasB = false;
+		portal_justArrivedAt = NULL;
 		Chat_AddRaw("&ePortal link broken - one of the portal blocks was removed.");
 		return;
 	}
-
-	if (portal_cooldown > 0) { portal_cooldown--; return; }
 
 	pos.x = Math_Floor(entity->Position.x);
 	pos.y = Math_Floor(entity->Position.y);
 	pos.z = Math_Floor(entity->Position.z);
 
 	if (pos.x == portal_posA.x && pos.y == portal_posA.y && pos.z == portal_posA.z) {
-		dest = &portal_posB;
+		triggered = &portal_posA;
 	} else if (pos.x == portal_posB.x && pos.y == portal_posB.y && pos.z == portal_posB.z) {
-		dest = &portal_posA;
+		triggered = &portal_posB;
 	}
-	if (!dest) return;
 
-	/* Same compass rotation as PortalPreview_Render in Game.c (not the      */
-	/* extra +180 there - that's only needed to make the mirrored preview    */
-	/* camera look correct, not for actually reorienting the player).        */
-	/* Applied to both facing and velocity via the same Vec3_RotateY3 used   */
-	/* everywhere else in the engine to turn a yaw into a world direction,   */
-	/* so the two stay consistent with each other after teleporting.         */
+	if (!triggered) {
+		/* Not standing inside either portal right now - clear the guard so   */
+		/* any portal (including one you just used) can trigger again from    */
+		/* here on. This is what actually lets a fast fall-through-both-      */
+		/* floor-portals loop keep cycling instead of stalling out.           */
+		portal_justArrivedAt = NULL;
+		return;
+	}
+	if (triggered == portal_justArrivedAt) return; /* still inside the one we just arrived at */
+
+	dest = (triggered == &portal_posA) ? &portal_posB : &portal_posA;
+
+	/* Same compass rotation as PortalPreview_Render in Game.c, including the */
+	/* +180 ("invert x/z") - applied to both facing and velocity via the      */
+	/* same Vec3_RotateY3 used everywhere else in the engine to turn a yaw    */
+	/* into a world direction, so the two stay consistent with each other.    */
 	angleOffset = portal_yawA - portal_yawB;
 	if (dest == &portal_posA) angleOffset = -angleOffset;
 	angleOffset = -angleOffset;
+	angleOffset += 180.0f;
 
 	rotatedVel       = Vec3_RotateY3(entity->Velocity.x, entity->Velocity.y, entity->Velocity.z, angleOffset * MATH_DEG2RAD);
 	entity->Velocity = rotatedVel;
@@ -1145,8 +1158,7 @@ static void PhysicsComp_CheckPortal(struct Entity* entity) {
 	update.flags = LU_HAS_POS | LU_HAS_YAW;
 	entity->VTABLE->SetLocation(entity, &update);
 
-	/* 10 ticks (0.5s) before this or the destination portal can trigger again */
-	portal_cooldown = 10;
+	portal_justArrivedAt = dest;
 }
 
 void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
