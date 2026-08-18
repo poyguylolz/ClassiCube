@@ -1079,84 +1079,63 @@ cc_bool physics_airstrafeEnabled = false;
 /* Portal link state, set via /client portal in Commands.c. Only one linked  */
 /* pair is supported at a time - running the command again after a pair is  */
 /* already linked starts a fresh pair. */
-cc_bool portal_hasA = false, portal_hasB = false;
-IVec3   portal_posA, portal_posB;
-/* Yaw the player was facing when each portal was placed - "fake north" is  */
-/* portal A's facing; the angle offset used for the portal preview camera   */
-/* is portal_yawA - portal_yawB. Set in Portal_Execute, Commands.c.         */
-float   portal_yawA = 0.0f, portal_yawB = 0.0f;
-/* Toggled by /client portalview in Commands.c - see PortalPreview_Render in Game.c */
+#define MAX_PORTALS 16
+IVec3   portal_pos[MAX_PORTALS];
+float   portal_yaw[MAX_PORTALS];
+int     portal_link[MAX_PORTALS]; /* index of linked portal, or -1 if unlinked/broken */
+int     portal_count   = 0;
+int     portal_pending = -1;      /* index waiting for a second portal to link to, or -1 */
 cc_bool portal_previewEnabled = false;
-/* Which portal (points at &portal_posA or &portal_posB, or NULL) the       */
-/* player was most recently teleported TO. Used to stop them bouncing       */
-/* straight back the instant they arrive, without blocking legitimate fast  */
-/* repeated teleports (e.g. two floor portals set up to loop) the way a     */
-/* flat time-based cooldown would - see PhysicsComp_CheckPortal below.      */
-static IVec3* portal_justArrivedAt = NULL;
+static int portal_justArrivedAt = -1;
 
 static void PhysicsComp_CheckPortal(struct Entity* entity) {
 	IVec3 pos;
-	IVec3* triggered = NULL;
-	IVec3* dest;
+	int i, triggered = -1, dest;
 	struct LocationUpdate update;
 	float angleOffset;
 	Vec3 rotatedVel;
-
-	if (!portal_hasA || !portal_hasB) { portal_justArrivedAt = NULL; return; }
-
-	/* If either portal block has actually been broken, forget the link      */
-	/* entirely rather than keep teleporting to/from coordinates that no     */
-	/* longer have a portal block there. Checked every tick (not just when   */
-	/* standing on a portal) so this is caught promptly either way.          */
-	if (World_GetBlock(portal_posA.x, portal_posA.y, portal_posA.z) != BLOCK_PORTAL ||
-		World_GetBlock(portal_posB.x, portal_posB.y, portal_posB.z) != BLOCK_PORTAL) {
-		portal_hasA = false;
-		portal_hasB = false;
-		portal_justArrivedAt = NULL;
-		Chat_AddRaw("&ePortal link broken - one of the portal blocks was removed.");
-		return;
-	}
 
 	pos.x = Math_Floor(entity->Position.x);
 	pos.y = Math_Floor(entity->Position.y);
 	pos.z = Math_Floor(entity->Position.z);
 
-	if (pos.x == portal_posA.x && pos.y == portal_posA.y && pos.z == portal_posA.z) {
-		triggered = &portal_posA;
-	} else if (pos.x == portal_posB.x && pos.y == portal_posB.y && pos.z == portal_posB.z) {
-		triggered = &portal_posB;
+	for (i = 0; i < portal_count; i++) {
+		if (World_GetBlock(portal_pos[i].x, portal_pos[i].y, portal_pos[i].z) != BLOCK_PORTAL) {
+			portal_link[i] = -1; /* block broken - unlink, keep the slot */
+			continue;
+		}
+		if (pos.x == portal_pos[i].x && pos.y == portal_pos[i].y && pos.z == portal_pos[i].z) triggered = i;
 	}
 
-	if (!triggered) {
-		/* Not standing inside either portal right now - clear the guard so   */
-		/* any portal (including one you just used) can trigger again from    */
-		/* here on. This is what actually lets a fast fall-through-both-      */
-		/* floor-portals loop keep cycling instead of stalling out.           */
-		portal_justArrivedAt = NULL;
-		return;
-	}
+	if (triggered < 0) { portal_justArrivedAt = -1; return; }
 	if (triggered == portal_justArrivedAt) return; /* still inside the one we just arrived at */
+	dest = portal_link[triggered];
+	if (dest < 0) return; /* unlinked, or its partner's block broke */
 
-	dest = (triggered == &portal_posA) ? &portal_posB : &portal_posA;
-
-	/* Same compass rotation as PortalPreview_Render in Game.c, including the */
-	/* +180 ("invert x/z") - applied to both facing and velocity via the      */
-	/* same Vec3_RotateY3 used everywhere else in the engine to turn a yaw    */
-	/* into a world direction, so the two stay consistent with each other.    */
-	angleOffset = portal_yawA - portal_yawB;
-	if (dest == &portal_posA) angleOffset = -angleOffset;
-	angleOffset = -angleOffset;
-	angleOffset += 180.0f;
+	angleOffset = portal_yaw[dest] - portal_yaw[triggered];
 
 	rotatedVel       = Vec3_RotateY3(entity->Velocity.x, entity->Velocity.y, entity->Velocity.z, angleOffset * MATH_DEG2RAD);
 	entity->Velocity = rotatedVel;
 
-	update.pos.x = dest->x + 0.5f;
-	update.pos.y = dest->y + 0.01f;
-	update.pos.z = dest->z + 0.5f;
+	/* Offset from the entry portal's centre, rotated the same way, so you    */
+	/* keep your relative position through the portal instead of always      */
+	/* snapping to dead-centre. */
+	{
+		Vec3 offset, rotatedOffset;
+		offset.x = entity->Position.x - (portal_pos[triggered].x + 0.5f);
+		offset.y = entity->Position.y - portal_pos[triggered].y;
+		offset.z = entity->Position.z - (portal_pos[triggered].z + 0.5f);
+		rotatedOffset = Vec3_RotateY3(offset.x, offset.y, offset.z, angleOffset * MATH_DEG2RAD);
+
+		update.pos.x = portal_pos[dest].x + 0.5f + rotatedOffset.x;
+		update.pos.y = portal_pos[dest].y + rotatedOffset.y + 0.01f;
+		update.pos.z = portal_pos[dest].z + 0.5f + rotatedOffset.z;
+	}
 	update.yaw   = entity->Yaw + angleOffset;
 	update.flags = LU_HAS_POS | LU_HAS_YAW;
 	entity->VTABLE->SetLocation(entity, &update);
+
+	portal_justArrivedAt = dest;
 
 	portal_justArrivedAt = dest;
 }

@@ -553,7 +553,7 @@ static void Render3D_Anaglyph(float delta, float t) {
 /* Renders a small picture-in-picture inset showing the world as seen from  */
 /* whichever linked portal you're further from, angled to match your own    */
 /* current look direction (position from the portal, angle from you - see   */
-/* PhysicsComp_CheckPortal/portal_hasA/B in EntityComponents.c for the rest  */
+/* PhysicsComp_CheckPortal in EntityComponents.c for the rest of the portal */
 /* of the portal feature). This is a second full render of the visible      */
 /* world into a viewport-restricted corner of the screen - not a texture    */
 /* applied to the portal block itself, so it won't line up with the block's */
@@ -574,62 +574,90 @@ static void Render3D_Anaglyph(float delta, float t) {
 /* Render3DFrame recalculates Frustum_CalcPlanes from whatever Gfx.View/     */
 /* Gfx.Projection currently are on every single call, so this gets a         */
 /* correctly-culled render for the portal's own view for free.              */
+/* Projects a world position to screen pixel coordinates using the CURRENT   */
+/* Gfx.View/Gfx.Projection (the real player camera's, at the point this is   */
+/* called - before PortalPreview_Render below overrides them for its own     */
+/* second render). Returns false if the point is behind the camera.          */
+static cc_bool WorldToScreen(Vec3 world, int* sx, int* sy) {
+	Vec3 viewPos;
+	float clipX, clipY, clipW, ndcX, ndcY;
+
+	Vec3_Transform(&viewPos, &world, &Gfx.View); /* View is affine - fine as-is */
+
+	clipX = viewPos.x * Gfx.Projection.row1.x + viewPos.y * Gfx.Projection.row2.x + viewPos.z * Gfx.Projection.row3.x + Gfx.Projection.row4.x;
+	clipY = viewPos.x * Gfx.Projection.row1.y + viewPos.y * Gfx.Projection.row2.y + viewPos.z * Gfx.Projection.row3.y + Gfx.Projection.row4.y;
+	clipW = viewPos.x * Gfx.Projection.row1.w + viewPos.y * Gfx.Projection.row2.w + viewPos.z * Gfx.Projection.row3.w + Gfx.Projection.row4.w;
+	if (clipW <= 0.01f) return false; /* behind the camera */
+
+	ndcX = clipX / clipW;
+	ndcY = clipY / clipW;
+	*sx  = (int)((ndcX * 0.5f + 0.5f) * Game.Width);
+	*sy  = (int)((1.0f - (ndcY * 0.5f + 0.5f)) * Game.Height); /* NDC +Y is up, screen +Y is down */
+	return true;
+}
+
 static void PortalPreview_Render(float delta, float t) {
-	extern cc_bool portal_hasA, portal_hasB, portal_previewEnabled;
-	extern IVec3   portal_posA, portal_posB;
-	extern float   portal_yawA, portal_yawB;
+	extern IVec3   portal_pos[];
+	extern float   portal_yaw[];
+	extern int     portal_link[];
+	extern int     portal_count;
+	extern cc_bool portal_previewEnabled;
 	struct Entity* e = &Entities.CurPlayer->Base;
-	Vec3 camPos, playerPos, savedCamPos;
-	IVec3* dest;
-	float distA, distB, dx, dz, fovy, aspect;
-	float angleOffset, savedYaw, savedPitch;
+	Vec3 camPos, playerPos, savedCamPos, blockCentre;
+	int i, closest, dest, screenX, screenY;
+	float bestDistSq, dx, dz, distSq, dist, fovy, aspect;
+	float angleOffset, savedYaw;
 	cc_bool savedThirdPerson;
 	int vx, vy, vw, vh;
 	struct Matrix projSaved, proj;
 
-	if (!portal_previewEnabled || !portal_hasA || !portal_hasB) return;
-	/* Both portal blocks must still actually be there - see the matching    */
-	/* check in PhysicsComp_CheckPortal, which is what actually clears       */
-	/* portal_hasA/portal_hasB once either block is broken.                  */
-	if (World_GetBlock(portal_posA.x, portal_posA.y, portal_posA.z) != BLOCK_PORTAL) return;
-	if (World_GetBlock(portal_posB.x, portal_posB.y, portal_posB.z) != BLOCK_PORTAL) return;
+	if (!portal_previewEnabled) return;
 
+	/* Find the linked portal you're nearest to (the one you're about to walk */
+	/* into) - the inset shows what's waiting for you at its destination.     */
 	playerPos = Camera.CurrentPos;
-	dx = playerPos.x - (portal_posA.x + 0.5f);
-	dz = playerPos.z - (portal_posA.z + 0.5f);
-	distA = dx * dx + dz * dz;
-	dx = playerPos.x - (portal_posB.x + 0.5f);
-	dz = playerPos.z - (portal_posB.z + 0.5f);
-	distB = dx * dx + dz * dz;
+	closest = -1;
+	bestDistSq = 0.0f;
+	for (i = 0; i < portal_count; i++) {
+		if (portal_link[i] < 0) continue;
+		if (World_GetBlock(portal_pos[i].x, portal_pos[i].y, portal_pos[i].z) != BLOCK_PORTAL) continue;
+		dx = playerPos.x - (portal_pos[i].x + 0.5f);
+		dz = playerPos.z - (portal_pos[i].z + 0.5f);
+		distSq = dx * dx + dz * dz;
+		if (closest < 0 || distSq < bestDistSq) { closest = i; bestDistSq = distSq; }
+	}
+	if (closest < 0) return;
+	dest = portal_link[closest];
+	if (World_GetBlock(portal_pos[dest].x, portal_pos[dest].y, portal_pos[dest].z) != BLOCK_PORTAL) return;
 
-	/* Show whichever portal you're further from - i.e. as you approach one, */
-	/* the inset shows what's waiting for you at the other end.              */
-	dest = (distA >= distB) ? &portal_posA : &portal_posB;
+	/* Project the NEAR portal (the one you're approaching) to screen space,  */
+	/* using the real camera's current matrices - not the destination one,   */
+	/* since it's the near portal's on-screen position that the inset should */
+	/* sit at. Skipped entirely if it's behind you or off-screen; no check    */
+	/* for a wall/block in front of it (that would need a raycast this       */
+	/* doesn't do), so it can still show through solid geometry.             */
+	blockCentre.x = portal_pos[closest].x + 0.5f;
+	blockCentre.y = portal_pos[closest].y + 0.5f;
+	blockCentre.z = portal_pos[closest].z + 0.5f;
+	if (!WorldToScreen(blockCentre, &screenX, &screenY)) return;
+	dist = Math_SqrtF(bestDistSq);
+	if (screenX < 0 || screenX > Game.Width || screenY < 0 || screenY > Game.Height) return;
 
-	camPos.x = dest->x + 0.5f;
-	camPos.y = dest->y + 0.5f; /* eye height 0.5 */
-	camPos.z = dest->z + 0.5f;
+	camPos.x = portal_pos[dest].x + 0.5f;
+	camPos.y = portal_pos[dest].y + 0.5f; /* eye height 0.5 */
+	camPos.z = portal_pos[dest].z + 0.5f;
 
-	/* "Compass" rotation: fake north is the yaw portal A was facing when    */
-	/* placed. angleOffset is how far portal B's own facing sits from that   */
-	/* north - e.g. if B faced fake east (90 right of A), angleOffset is 90. */
-	/* Sign flips depending on which side we're viewing from, so walking     */
-	/* through from either portal rotates consistently relative to the other.*/
-	angleOffset = portal_yawA - portal_yawB;
-	if (dest == &portal_posA) angleOffset = -angleOffset;
-	angleOffset = -angleOffset; /* inverted per request */
+	/* Same "compass" formula as the actual teleport, in PhysicsComp_CheckPortal, */
+	/* EntityComponents.c - kept identical so the preview always matches what   */
+	/* actually happens when you walk through.                                  */
+	angleOffset = portal_yaw[dest] - portal_yaw[closest];
 
 	/* GetOrientation() (called inside Render3DFrame via Camera.Active->     */
-	/* GetView) reads e->Yaw/e->Pitch directly - there's no other way to     */
-	/* feed it a custom angle, so the real entity's yaw is temporarily       */
-	/* overridden for the duration of this render and restored after.       */
-	/* +180 is the "inverted x/z" mirror - without it you'd see the portal   */
-	/* as if walking away from it rather than through it, the wrong way      */
-	/* round relative to how the other side actually connects.              */
-	savedYaw   = e->Yaw;
-	savedPitch = e->Pitch;
-	e->Yaw     = savedYaw + angleOffset + 180.0f;
-	e->Pitch   = -savedPitch;
+	/* GetView) reads e->Yaw directly - there's no other way to feed it a    */
+	/* custom angle, so the real entity's yaw is temporarily overridden for  */
+	/* the duration of this render and restored after.                       */
+	savedYaw = e->Yaw;
+	e->Yaw   = savedYaw + angleOffset;
 
 	/* Forces the local player's own body to render (normally suppressed in  */
 	/* first person) and hides the first-person held-block viewmodel - see   */
@@ -640,10 +668,20 @@ static void PortalPreview_Render(float delta, float t) {
 	savedThirdPerson         = Camera.Active->isThirdPerson;
 	Camera.Active->isThirdPerson = true;
 
-	vw = Game.Width / 4;
-	vh = vw; /* force a 1:1 square aspect ratio */
-	vx = Game.Width - vw - 10;
-	vy = 10;
+	/* Size shrinks with distance (rough perspective cue), clamped so it     */
+	/* never gets absurdly huge up close or vanishes far away. Centred on    */
+	/* the projected screen point, then clamped back on-screen so it doesn't */
+	/* get cut off at an edge.                                               */
+	vw = (int)(Game.Height * 6.0f / (dist + 3.0f));
+	if (vw < Game.Height / 10) vw = Game.Height / 10;
+	if (vw > Game.Height / 3)  vw = Game.Height / 3;
+	vh = vw;
+	vx = screenX - vw / 2;
+	vy = screenY - vh / 2;
+	if (vx < 0) vx = 0;
+	if (vy < 0) vy = 0;
+	if (vx + vw > Game.Width)  vx = Game.Width  - vw;
+	if (vy + vh > Game.Height) vy = Game.Height - vh;
 	if (CC_GFX_BACKEND_IS_GL()) {
 		/* Gfx_SetViewport doesn't flip Y for GL backends the way Gfx_SetScissor  */
 		/* does internally (see _GLShared.h) - OpenGL's native origin is bottom-  */
@@ -654,7 +692,7 @@ static void PortalPreview_Render(float delta, float t) {
 	projSaved = Gfx.Projection;
 
 	fovy   = Camera.Fov * MATH_DEG2RAD;
-	aspect = (float)vw / (float)vh; /* always 1.0 now that vh is forced equal to vw */
+	aspect = (float)vw / (float)vh; /* always 1.0, vh is forced equal to vw */
 	Gfx_CalcPerspectiveMatrix(&proj, fovy, aspect, (float)Game_ViewDistance);
 	Gfx.Projection = proj;
 
@@ -670,7 +708,6 @@ static void PortalPreview_Render(float delta, float t) {
 	Gfx.Projection     = projSaved;
 	Camera.Active->isThirdPerson = savedThirdPerson;
 	e->Yaw   = savedYaw;
-	e->Pitch = savedPitch;
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
 }
 
