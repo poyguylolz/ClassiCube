@@ -1130,36 +1130,42 @@ static struct ChatCommand AirstrafeSpeedoCommand = {
 /*########################################################################################################################*
 *-------------------------------------------------------PortalCommand-----------------------------------------------------*
 *#########################################################################################################################*/
+#define MAX_PORTALS 16
+
 static void Portal_Execute(const cc_string* args, int argsCount) {
-	extern cc_bool portal_hasA, portal_hasB;
-	extern IVec3   portal_posA, portal_posB;
-	extern float   portal_yawA, portal_yawB;
+	extern IVec3 portal_pos[];
+	extern float portal_yaw[];
+	extern int   portal_link[];
+	extern int   portal_count, portal_pending;
 	IVec3 pos;
+	int idx;
 
 	if (!Game_SelectedPos.valid) {
 		Chat_AddRaw("&cLook at a block first - the portal is placed next to it.");
 		return;
 	}
+	if (portal_count >= MAX_PORTALS) {
+		Chat_AddRaw("&cToo many portals placed already.");
+		return;
+	}
 	pos = Game_SelectedPos.translatedPos;
 
-	if (!portal_hasA || (portal_hasA && portal_hasB)) {
-		/* Starting a fresh pair - either nothing placed yet, or the previous */
-		/* pair was already complete and this begins a new one.               */
-		portal_posA = pos;
-		portal_yawA = Entities.CurPlayer->Base.Yaw;
-		portal_hasA = true;
-		portal_hasB = false;
-		Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
-		Chat_AddRaw("&aFirst portal placed. Look at a second spot and run &f/client portal &aagain to link them.");
+	idx = portal_count++;
+	portal_pos[idx]  = pos;
+	portal_yaw[idx]  = Entities.CurPlayer->Base.Yaw;
+	portal_link[idx] = -1;
+	Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
+
+	if (portal_pending < 0) {
+		portal_pending = idx;
+		Chat_AddRaw("&aPortal placed. Look at a second spot and run &f/client portal &aagain to link it.");
 		return;
 	}
 
-	/* First portal already placed, not linked yet - this one completes the pair */
-	portal_posB = pos;
-	portal_yawB = Entities.CurPlayer->Base.Yaw;
-	portal_hasB = true;
-	Game_UpdateBlock(pos.x, pos.y, pos.z, BLOCK_PORTAL);
-	Chat_AddRaw("&aSecond portal placed and linked - walk into either one to teleport.");
+	portal_link[idx]            = portal_pending;
+	portal_link[portal_pending] = idx;
+	portal_pending = -1;
+	Chat_AddRaw("&aPortals linked - walk into either one to teleport.");
 }
 
 static struct ChatCommand PortalCommand = {
