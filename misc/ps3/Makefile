@@ -22,16 +22,18 @@ CONTENTID	:= UP0001-$(APPID)_00-0000000000000000
 ICON0		:= misc/ps3/ICON0.png
 SFOXML		:= misc/ps3/sfo.xml
 
+default: $(TARGET).gnpdrm.pkg $(TARGET).self $(TARGET).fake.self
+
 
 #---------------------------------------------------------------------------------
 # Code generation
 #--------------------------------------------------------------------------------
-MACHDEP	= -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
+MACHDEP	:= -mhard-float -fmodulo-sched -ffunction-sections -fdata-sections
 
-CFLAGS	= -O2 -DPLAT_PS3 -Wall -mcpu=cell -fno-math-errno $(MACHDEP) \
+CFLAGS	:= -O2 -DPLAT_PS3 -Wall -mcpu=cell -fno-math-errno $(MACHDEP) \
 			-I$(PSL1GHT)/ppu/include -I$(PSL1GHT)/ppu/include/simdmath
-LDFLAGS	= $(MACHDEP) -fno-use-linker-plugin -L$(PSL1GHT)/ppu/lib
-LIBS	= -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm -lnet -lsysmodule 
+LDFLAGS	:= $(MACHDEP) -fno-use-linker-plugin -L$(PSL1GHT)/ppu/lib
+LIBS	:= -lrsx -lgcm_sys -lio -lsysutil -lrt -llv2 -lm -lnet -lsysmodule 
 
 
 #---------------------------------------------------------------------------------
@@ -61,38 +63,6 @@ PACKAGE_FINALIZE :=	$(PS3DEV)/bin/package_finalize
 
 
 #---------------------------------------------------------------------------------
-# Executable generation
-#---------------------------------------------------------------------------------
-default: $(TARGET).gnpdrm.pkg $(TARGET).self $(TARGET).fake.self
-
-$(TARGET).gnpdrm.pkg: $(TARGET).pkg
-	cp $< $@
-	$(PACKAGE_FINALIZE) $@
-
-$(TARGET).pkg: $(TARGET).sprx
-	mkdir -p $(BUILD_DIR)/pkg/USRDIR
-	cp $(ICON0) $(BUILD_DIR)/pkg/ICON0.PNG
-	$(SELF_NPDRM) $< $(BUILD_DIR)/pkg/USRDIR/EBOOT.BIN $(CONTENTID)
-	$(SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) $(BUILD_DIR)/pkg/PARAM.SFO
-	$(PKG) --contentid $(CONTENTID) $(BUILD_DIR)/pkg/ $@
-
-$(TARGET).self: $(TARGET).sprx
-	$(SELF) $< $@
-
-$(TARGET).sprx: $(TARGET).elf
-	$(STRIP) $< -o $@
-	$(SPRX) $@
-
-$(TARGET).fake.self: $(TARGET).elf
-	$(FSELF) $< $@
-
-
-OEXT		:= .elf
-GEN_FILES 	:= $(TARGET).fake.self $(TARGET).sprx $(TARGET).self $(TARGET).pkg $(TARGET).gnpdrm.pkg
-include misc/makefiles/common_build.mk
-
-
-#---------------------------------------------------------------------------------
 # Shader generation
 #---------------------------------------------------------------------------------
 SHDR_DIR	:= misc/ps3
@@ -119,6 +89,35 @@ $(BUILD_DIR)/%.vpo.o: $(BUILD_DIR)/%.vpo
 	bin2s -a 64 $< | $(AS) -o $@
 $(BUILD_DIR)/%.fpo.o: $(BUILD_DIR)/%.fpo
 	bin2s -a 64 $< | $(AS) -o $@
+
+
+#---------------------------------------------------------------------------------
+# Executable generation
+#---------------------------------------------------------------------------------
+OEXT		:= .elf
+GEN_FILES 	:= $(TARGET).fake.self $(TARGET).sprx $(TARGET).self $(TARGET).pkg $(TARGET).gnpdrm.pkg
+include misc/makefiles/common_build.mk
+
+$(TARGET).fake.self: $(TARGET).elf
+	$(FSELF) $< $@
+
+$(TARGET).sprx: $(TARGET).elf
+	$(STRIP) $< -o $@
+	$(SPRX) $@
+
+$(TARGET).self: $(TARGET).sprx
+	$(SELF) $< $@
+
+$(TARGET).pkg: $(TARGET).sprx
+	mkdir -p $(BUILD_DIR)/pkg/USRDIR
+	cp $(ICON0) $(BUILD_DIR)/pkg/ICON0.PNG
+	$(SELF_NPDRM) $< $(BUILD_DIR)/pkg/USRDIR/EBOOT.BIN $(CONTENTID)
+	$(SFO) --title "$(TITLE)" --appid "$(APPID)" -f $(SFOXML) $(BUILD_DIR)/pkg/PARAM.SFO
+	$(PKG) --contentid $(CONTENTID) $(BUILD_DIR)/pkg/ $@
+
+$(TARGET).gnpdrm.pkg: $(TARGET).pkg
+	cp $< $@
+	$(PACKAGE_FINALIZE) $@
 
 
 #---------------------------------------------------------------------------------
