@@ -127,8 +127,14 @@ static void SetBaseOffset(void) {
 	}
 }
 
+/* Tunable via /client viewmodelfov in Commands.c. Default matches the      */
+/* original hardcoded value here. When viewmodelFovMatchPlayer is set, the  */
+/* held-block FOV tracks Camera.Fov instead of using viewmodelFov directly. */
+float   viewmodelFov            = 70.0f;
+cc_bool viewmodelFovMatchPlayer = false;
+
 static void OnProjectionChanged(void* obj) {
-	float fov = 70.0f * HELD_TRUE_DEG2RAD;
+	float fov = (viewmodelFovMatchPlayer ? Camera.Fov : viewmodelFov) * HELD_TRUE_DEG2RAD;
 	float aspectRatio = (float)Game.Width / (float)Game.Height;
 	Gfx_CalcPerspectiveMatrix(&held_blockProj, fov, aspectRatio, (float)Game_ViewDistance);
 }

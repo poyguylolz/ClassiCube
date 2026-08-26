@@ -1204,6 +1204,62 @@ static struct ChatCommand PortalViewCommand = {
 };
 
 /*########################################################################################################################*
+*----------------------------------------------------ViewmodelFovCommand--------------------------------------------------*
+*#########################################################################################################################*/
+#define VIEWMODEL_FOV_DEFAULT 70.0f
+
+static void ViewmodelFov_Execute(const cc_string* args, int argsCount) {
+	extern float   viewmodelFov;
+	extern cc_bool viewmodelFovMatchPlayer;
+	float v;
+
+	if (!argsCount) {
+		if (viewmodelFovMatchPlayer) {
+			Chat_AddRaw("&e/client: &fViewmodel FOV is currently matching player FOV.");
+		} else {
+			Chat_Add1("&e/client: &fViewmodel FOV is currently %f2", &viewmodelFov);
+		}
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "player")) {
+		viewmodelFovMatchPlayer = true;
+		Event_RaiseVoid(&GfxEvents.ProjectionChanged);
+		Chat_AddRaw("&aViewmodel FOV now matches player FOV.");
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		viewmodelFovMatchPlayer = false;
+		viewmodelFov = VIEWMODEL_FOV_DEFAULT;
+		Event_RaiseVoid(&GfxEvents.ProjectionChanged);
+		Chat_AddRaw("&aViewmodel FOV has been reset to its default value.");
+		return;
+	}
+
+	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
+		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+		return;
+	}
+
+	viewmodelFovMatchPlayer = false;
+	viewmodelFov = v;
+	Event_RaiseVoid(&GfxEvents.ProjectionChanged);
+	Chat_Add1("&e/client: &fViewmodel FOV is now %f2", &viewmodelFov);
+}
+
+static struct ChatCommand ViewmodelFovCommand = {
+	"ViewmodelFov", ViewmodelFov_Execute,
+	0,
+	{
+		"&a/client viewmodelfov [value/player/reset]",
+		"&eSets the FOV used for your held-block viewmodel. Default is 70.",
+		"&eUse &fplayer &eto make it always match your actual camera FOV.",
+		"&eRun with no arguments to see the current setting.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1231,6 +1287,7 @@ static void OnInit(void) {
 	Commands_Register(&AirstrafeSpeedoCommand);
 	Commands_Register(&PortalCommand);
 	Commands_Register(&PortalViewCommand);
+	Commands_Register(&ViewmodelFovCommand);
 }
 
 static void OnFree(void) {
