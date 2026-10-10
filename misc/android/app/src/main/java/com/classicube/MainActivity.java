@@ -1,4 +1,4 @@
-package com.classicube;
+package com.classicubepi;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
