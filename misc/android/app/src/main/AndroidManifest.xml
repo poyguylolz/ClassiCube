@@ -15,16 +15,16 @@
   
   <application
       android:icon="@mipmap/ccicon"
-      android:label="ClassiCube">
+      android:label="cladicub">
     <provider
-        android:name="com.classicube.CCFileProvider"
-        android:authorities="com.classicube.android.client.provider"
+        android:name="com.classicubepi.CCFileProvider"
+        android:authorities="com.classicubepi.android.client.provider"
         android:exported="false"
         android:grantUriPermissions="true"/>
     <!--NOTE: authorities must be [package].provider, otherwise CCFileProvider doesn't behave properly -->
 
     <activity
-        android:name="com.classicube.MainActivity"
+        android:name="com.classicubepi.MainActivity"
         android:label="cladicub"
         android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
         android:exported="true">
