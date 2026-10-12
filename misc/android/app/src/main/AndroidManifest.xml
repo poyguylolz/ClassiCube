@@ -24,7 +24,7 @@
     <!--NOTE: authorities must be [package].provider, otherwise CCFileProvider doesn't behave properly -->
 
     <activity
-        android:name="com.classicubepi.MainActivity"
+        android:name="com.classicube.MainActivity"
         android:label="cladicub"
         android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
         android:exported="true">
