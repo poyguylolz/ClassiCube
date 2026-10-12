@@ -1260,6 +1260,100 @@ static struct ChatCommand ViewmodelFovCommand = {
 };
 
 /*########################################################################################################################*
+*-------------------------------------------------------AimbotCommand-----------------------------------------------------*
+*#########################################################################################################################*/
+static void Aimbot_Execute(const cc_string* args, int argsCount) {
+	extern cc_bool aimbot_enabled;
+	extern float   aimbot_range, aimbot_smooth;
+	float v;
+
+	if (!argsCount) {
+		aimbot_enabled = !aimbot_enabled;
+		Chat_AddRaw(aimbot_enabled ? "&aAimbot &2enabled&a." : "&aAimbot &cdisabled&a.");
+		return;
+	}
+	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "range")) {
+		if (!Convert_ParseFloat(&args[1], &v) || v <= 0.0f) {
+			Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
+			return;
+		}
+		aimbot_range = v;
+		Chat_Add1("&e/client: &fAimbot range is now %f2 blocks", &aimbot_range);
+		return;
+	}
+	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "smooth")) {
+		if (!Convert_ParseFloat(&args[1], &v) || v < 0.0f || v >= 1.0f) {
+			Chat_AddRaw("&e/client: &cSmoothing must be 0 (instant) up to just under 1.");
+			return;
+		}
+		aimbot_smooth = v;
+		Chat_Add1("&e/client: &fAimbot smoothing is now %f2", &aimbot_smooth);
+		return;
+	}
+	Chat_AddRaw("&e/client: &cUsage: &f/client aimbot [range <blocks> | smooth <0-1>]");
+}
+
+static struct ChatCommand AimbotCommand = {
+	"Aimbot", Aimbot_Execute,
+	0,
+	{
+		"&a/client aimbot [range <blocks> | smooth <0-1>]",
+		"&eToggles auto-aim at the player closest to your crosshair.",
+		"&esmooth 0 snaps instantly, higher values turn slower.",
+		"&eDoes not check line of sight, so it aims through walls.",
+	}
+};
+
+/*########################################################################################################################*
+*-----------------------------------------------------TriggerbotCommand---------------------------------------------------*
+*#########################################################################################################################*/
+static void Triggerbot_Execute(const cc_string* args, int argsCount) {
+	extern int     triggerbot_mode;
+	extern cc_bool triggerbot_blocksOnly;
+	cc_bool blocks;
+
+	if (!argsCount || String_CaselessEqualsConst(&args[0], "off")) {
+		if (!triggerbot_mode && !argsCount) {
+			Chat_AddRaw("&e/client: &cUsage: &f/client triggerbot <break|place|off> [blocks]");
+			return;
+		}
+		triggerbot_mode = 0;
+		Chat_AddRaw("&aTriggerbot &cdisabled&a.");
+		return;
+	}
+
+	blocks = argsCount >= 2 && String_CaselessEqualsConst(&args[1], "blocks");
+	if (String_CaselessEqualsConst(&args[0], "break")) {
+		triggerbot_mode = 1;
+	} else if (String_CaselessEqualsConst(&args[0], "place")) {
+		triggerbot_mode = 2;
+	} else {
+		Chat_AddRaw("&e/client: &cUsage: &f/client triggerbot <break|place|off> [blocks]");
+		return;
+	}
+	triggerbot_blocksOnly = blocks;
+
+	if (blocks) {
+		Chat_AddRaw(triggerbot_mode == 1 ? "&aTriggerbot &2on&a: breaks (mouse1) at any block you look at."
+		                                 : "&aTriggerbot &2on&a: places (mouse2) at any block you look at.");
+	} else {
+		Chat_AddRaw(triggerbot_mode == 1 ? "&aTriggerbot &2on&a: clicks break (mouse1) when aimed at a player."
+		                                 : "&aTriggerbot &2on&a: clicks place (mouse2) when aimed at a player.");
+	}
+}
+
+static struct ChatCommand TriggerbotCommand = {
+	"Triggerbot", Triggerbot_Execute,
+	0,
+	{
+		"&a/client triggerbot <break|place|off> [blocks]",
+		"&eAuto-clicks while your crosshair is on a player (within reach):",
+		"&ebreak = mouse1, place = mouse2. Add &fblocks &eto fire on any block.",
+		"&eClicks at most 4 times a second, same as holding the button.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1288,6 +1382,8 @@ static void OnInit(void) {
 	Commands_Register(&PortalCommand);
 	Commands_Register(&PortalViewCommand);
 	Commands_Register(&ViewmodelFovCommand);
+	Commands_Register(&AimbotCommand);
+	Commands_Register(&TriggerbotCommand);
 }
 
 static void OnFree(void) {

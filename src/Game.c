@@ -711,6 +711,71 @@ static void PortalPreview_Render(float delta, float t) {
 	Gfx_SetViewport(0, 0, Game.Width, Game.Height);
 }
 
+/* Aimbot, toggled/tuned by /client aimbot in Commands.c. Aims at the player */
+/* whose direction is closest to where you're already looking. Doesn't check */
+/* line of sight. Uses its own degree/radian constant on purpose so it isn't */
+/* thrown off by /client pi.                                                 */
+cc_bool aimbot_enabled = false;
+float   aimbot_range   = 50.0f; /* max distance, blocks */
+float   aimbot_smooth  = 0.0f;  /* 0 = snap instantly, towards 1 = slower */
+#define AIM_RAD2DEG 57.2957795f
+
+static float Aim_Wrap180(float a) {
+	while (a >  180.0f) a -= 360.0f;
+	while (a < -180.0f) a += 360.0f;
+	return a;
+}
+
+static void Aimbot_Update(void) {
+	struct Entity* me = &Entities.CurPlayer->Base;
+	struct LocationUpdate update;
+	Vec3 eye;
+	float curYaw, curPitch, yaw, pitch, dx, dy, dz, horiz, dyaw, dpitch, score, rangeSq;
+	float bestScore = 0.0f, bestYaw = 0.0f, bestPitch = 0.0f;
+	cc_bool found = false;
+	int i;
+
+	if (!aimbot_enabled || Gui.InputGrab) return;
+
+	eye      = Entity_GetEyePosition(me);
+	curYaw   = me->next.yaw;
+	curPitch = me->next.pitch;
+	if (curPitch > 180.0f) curPitch -= 360.0f; /* stored as 0-360, up is 270+ */
+	rangeSq  = aimbot_range * aimbot_range;
+
+	for (i = 0; i < MAX_NET_PLAYERS; i++) {
+		struct Entity* t = Entities.List[i];
+		if (!t || t == me) continue;
+
+		dx = t->Position.x - eye.x;
+		dy = (t->Position.y + t->Size.y * 0.6f) - eye.y; /* roughly chest height */
+		dz = t->Position.z - eye.z;
+		if (dx * dx + dy * dy + dz * dz > rangeSq) continue;
+
+		/* inverse of Vec3_GetDirVector: x = cos(p)sin(y), y = -sin(p), z = -cos(p)cos(y) */
+		horiz = Math_SqrtF(dx * dx + dz * dz);
+		yaw   = Math_Atan2f(-dz, dx)    * AIM_RAD2DEG;
+		pitch = Math_Atan2f(horiz, -dy) * AIM_RAD2DEG;
+		if (pitch >  89.0f) pitch =  89.0f;
+		if (pitch < -89.0f) pitch = -89.0f;
+
+		dyaw   = Aim_Wrap180(yaw - curYaw);
+		dpitch = pitch - curPitch;
+		score  = dyaw * dyaw + dpitch * dpitch;
+		if (!found || score < bestScore) {
+			found = true; bestScore = score; bestYaw = yaw; bestPitch = pitch;
+		}
+	}
+	if (!found) return;
+
+	dyaw   = Aim_Wrap180(bestYaw - curYaw);
+	dpitch = bestPitch - curPitch;
+	update.flags = LU_HAS_YAW | LU_HAS_PITCH; /* same call mouse-look uses, Camera.c */
+	update.yaw   = Math_ClampAngle(curYaw   + dyaw   * (1.0f - aimbot_smooth));
+	update.pitch = Math_ClampAngle(curPitch + dpitch * (1.0f - aimbot_smooth));
+	me->VTABLE->SetLocation(me, &update);
+}
+
 static void PerformScheduledTasks(float time) {
 	struct ScheduledTask2* task = tasks_head;
 	struct ScheduledTask2* next;
@@ -928,6 +993,7 @@ void Game_RenderFrame(void) {
 #else
 	Camera.Active->UpdateMouse(Entities.CurPlayer, delta);
 #endif
+	Aimbot_Update(); /* after mouse-look, so it gets the final say each frame */
 
 	if (!Window_Main.Focused && !Gui.InputGrab && autoPause) 
 		Gui_ShowPauseMenu();

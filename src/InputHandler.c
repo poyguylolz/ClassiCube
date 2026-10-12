@@ -456,8 +456,15 @@ static void InputHandler_PickBlock(void) {
 #ifdef CC_BUILD_TOUCH
 static cc_bool AnyBlockTouches(void);
 #endif
+/* Set via /client triggerbot in Commands.c. 0 = off, 1 = break (mouse1), */
+/* 2 = place (mouse2). blocksOnly: fire on any block instead of only when  */
+/* the crosshair is on a player.                                           */
+int     triggerbot_mode       = 0;
+cc_bool triggerbot_blocksOnly = false;
+
 void InputHandler_Tick(float delta) {
 	cc_bool left, middle, right;
+	cc_bool trigLeft = false, trigRight = false;
 	
 	input_deltaAcc += delta;
 	if (Gui.InputGrab) return;
@@ -481,16 +488,28 @@ void InputHandler_Tick(float delta) {
 	}
 #endif
 
+	/* Triggerbot: acts as if the chosen button were held for this tick only. */
+	/* input_buttonsDown is never touched by it, so it can't stay "held" once */
+	/* the trigger condition stops being true.                                */
+	if (triggerbot_mode && !left && !right &&
+		(triggerbot_blocksOnly || Entities_GetClosest(&Entities.CurPlayer->Base) != -1)) {
+		trigLeft  = (triggerbot_mode == 1);
+		trigRight = (triggerbot_mode == 2);
+	}
+
 	if (Server.SupportsPlayerClick) {
 		input_pickingId = -1;
 		if (left)   MouseStateUpdate(MOUSE_LEFT,   true);
 		if (right)  MouseStateUpdate(MOUSE_RIGHT,  true);
 		if (middle) MouseStateUpdate(MOUSE_MIDDLE, true);
+		/* quick press + release for triggered clicks */
+		if (trigLeft)  { MouseStateUpdate(MOUSE_LEFT,  true); MouseStateUpdate(MOUSE_LEFT,  false); }
+		if (trigRight) { MouseStateUpdate(MOUSE_RIGHT, true); MouseStateUpdate(MOUSE_RIGHT, false); }
 	}
 
-	if (left) {
+	if (left || trigLeft) {
 		InputHandler_DeleteBlock();
-	} else if (right) {
+	} else if (right || trigRight) {
 		InputHandler_PlaceBlock();
 	} else if (middle) {
 		InputHandler_PickBlock();
