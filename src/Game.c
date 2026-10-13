@@ -718,6 +718,7 @@ static void PortalPreview_Render(float delta, float t) {
 cc_bool aimbot_enabled = false;
 float   aimbot_range   = 50.0f; /* max distance, blocks */
 float   aimbot_smooth  = 0.0f;  /* 0 = snap instantly, towards 1 = slower */
+cc_bool aimbot_bots    = false; /* also target bots (entities with no tab list entry) */
 #define AIM_RAD2DEG 57.2957795f
 
 static float Aim_Wrap180(float a) {
@@ -746,6 +747,7 @@ static void Aimbot_Update(void) {
 	for (i = 0; i < MAX_NET_PLAYERS; i++) {
 		struct Entity* t = Entities.List[i];
 		if (!t || t == me) continue;
+		if (!aimbot_bots && !TabList.NameOffsets[i]) continue; /* real players have a tab list entry, bots don't */
 
 		dx = t->Position.x - eye.x;
 		dy = (t->Position.y + t->Size.y * 0.6f) - eye.y; /* roughly chest height */

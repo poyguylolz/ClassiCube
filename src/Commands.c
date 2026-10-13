@@ -1263,13 +1263,18 @@ static struct ChatCommand ViewmodelFovCommand = {
 *-------------------------------------------------------AimbotCommand-----------------------------------------------------*
 *#########################################################################################################################*/
 static void Aimbot_Execute(const cc_string* args, int argsCount) {
-	extern cc_bool aimbot_enabled;
+	extern cc_bool aimbot_enabled, aimbot_bots;
 	extern float   aimbot_range, aimbot_smooth;
 	float v;
 
 	if (!argsCount) {
 		aimbot_enabled = !aimbot_enabled;
 		Chat_AddRaw(aimbot_enabled ? "&aAimbot &2enabled&a." : "&aAimbot &cdisabled&a.");
+		return;
+	}
+	if (String_CaselessEqualsConst(&args[0], "bots")) {
+		aimbot_bots = !aimbot_bots;
+		Chat_AddRaw(aimbot_bots ? "&aAimbot now also targets bots." : "&aAimbot now ignores bots.");
 		return;
 	}
 	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "range")) {
@@ -1301,6 +1306,7 @@ static struct ChatCommand AimbotCommand = {
 		"&eToggles auto-aim at the player closest to your crosshair.",
 		"&esmooth 0 snaps instantly, higher values turn slower.",
 		"&eDoes not check line of sight, so it aims through walls.",
+		"&e/client aimbot bots &etoggles whether bots count as targets.",
 	}
 };
 
@@ -1309,9 +1315,14 @@ static struct ChatCommand AimbotCommand = {
 *#########################################################################################################################*/
 static void Triggerbot_Execute(const cc_string* args, int argsCount) {
 	extern int     triggerbot_mode;
-	extern cc_bool triggerbot_blocksOnly;
+	extern cc_bool triggerbot_blocksOnly, triggerbot_bots;
 	cc_bool blocks;
 
+	if (argsCount && String_CaselessEqualsConst(&args[0], "bots")) {
+		triggerbot_bots = !triggerbot_bots;
+		Chat_AddRaw(triggerbot_bots ? "&aTriggerbot now also fires at bots." : "&aTriggerbot now ignores bots.");
+		return;
+	}
 	if (!argsCount || String_CaselessEqualsConst(&args[0], "off")) {
 		if (!triggerbot_mode && !argsCount) {
 			Chat_AddRaw("&e/client: &cUsage: &f/client triggerbot <break|place|off> [blocks]");
@@ -1350,6 +1361,7 @@ static struct ChatCommand TriggerbotCommand = {
 		"&eAuto-clicks while your crosshair is on a player (within reach):",
 		"&ebreak = mouse1, place = mouse2. Add &fblocks &eto fire on any block.",
 		"&eClicks at most 4 times a second, same as holding the button.",
+		"&e/client triggerbot bots &etoggles whether bots count as players.",
 	}
 };
 

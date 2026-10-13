@@ -461,10 +461,12 @@ static cc_bool AnyBlockTouches(void);
 /* the crosshair is on a player.                                           */
 int     triggerbot_mode       = 0;
 cc_bool triggerbot_blocksOnly = false;
+cc_bool triggerbot_bots       = false; /* count bots (no tab list entry) as targets */
 
 void InputHandler_Tick(float delta) {
 	cc_bool left, middle, right;
 	cc_bool trigLeft = false, trigRight = false;
+	int trigId;
 	
 	input_deltaAcc += delta;
 	if (Gui.InputGrab) return;
@@ -491,10 +493,16 @@ void InputHandler_Tick(float delta) {
 	/* Triggerbot: acts as if the chosen button were held for this tick only. */
 	/* input_buttonsDown is never touched by it, so it can't stay "held" once */
 	/* the trigger condition stops being true.                                */
-	if (triggerbot_mode && !left && !right &&
-		(triggerbot_blocksOnly || Entities_GetClosest(&Entities.CurPlayer->Base) != -1)) {
-		trigLeft  = (triggerbot_mode == 1);
-		trigRight = (triggerbot_mode == 2);
+	if (triggerbot_mode && !left && !right) {
+		cc_bool onTarget = triggerbot_blocksOnly;
+		if (!onTarget) {
+			trigId   = Entities_GetClosest(&Entities.CurPlayer->Base);
+			onTarget = trigId >= 0 && trigId < MAX_NET_PLAYERS && (triggerbot_bots || TabList.NameOffsets[trigId]);
+		}
+		if (onTarget) {
+			trigLeft  = (triggerbot_mode == 1);
+			trigRight = (triggerbot_mode == 2);
+		}
 	}
 
 	if (Server.SupportsPlayerClick) {
