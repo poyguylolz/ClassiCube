@@ -821,13 +821,20 @@ static void Classic_Reset(void) {
 	Net_Set(OPCODE_SET_PERMISSION, Classic_SetPermission, 2);
 }
 
+/* Silent aimbot override, see Game.c. While silent_active, the orientation */
+/* reported to the server is the aimed one instead of our real view.        */
+extern cc_bool silent_active;
+extern float   silent_yaw, silent_pitch;
+
 static cc_uint8* Classic_Tick(cc_uint8* data) {
 	struct Entity* e = &Entities.CurPlayer->Base;
 	if (!classic_receivedFirstPos) return data;
 
 	/* Report end position of each physics tick, rather than current position */
 	/*  (otherwise can miss landing on a block then jumping off of it again) */
-	return Classic_WritePosition(data, e->next.pos, e->Yaw, e->Pitch);
+	return Classic_WritePosition(data, e->next.pos,
+		silent_active ? silent_yaw   : e->Yaw,
+		silent_active ? silent_pitch : e->Pitch);
 }
 
 
@@ -866,8 +873,8 @@ void CPE_SendPlayerClick(int button, cc_bool pressed, cc_uint8 targetId, struct 
 	{
 		data[1] = button;
 		data[2] = !pressed;
-		Mem_WriteU16_BE(&data[3], Ext_Deg2Packed(p->Yaw));
-		Mem_WriteU16_BE(&data[5], Ext_Deg2Packed(p->Pitch));
+		Mem_WriteU16_BE(&data[3], Ext_Deg2Packed(silent_active ? silent_yaw : p->Yaw));
+		Mem_WriteU16_BE(&data[5], Ext_Deg2Packed(silent_active ? silent_pitch : p->Pitch));
 
 		data[7] = targetId;
 		Mem_WriteU16_BE(&data[8],  t->pos.x);
@@ -1998,3 +2005,12 @@ struct IGameComponent Protocol_Component = {
 	NULL,    /* Free  */
 	OnReset, /* Reset */
 };
+
+/* Sends our position/orientation packet right now instead of waiting for the */
+/* next tick - used by silent aim to snap to a target and back around a click. */
+void Protocol_SendPositionNow(void) {
+	cc_uint8 tmp[64];
+	cc_uint8* data = Classic_Tick(tmp);
+	if (data == tmp) return;
+	Server.SendData(tmp, (cc_uint32)(data - tmp));
+}

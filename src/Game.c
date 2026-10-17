@@ -712,13 +712,25 @@ static void PortalPreview_Render(float delta, float t) {
 }
 
 /* Aimbot, toggled/tuned by /client aimbot in Commands.c. Aims at the player */
-/* whose direction is closest to where you're already looking. Doesn't check */
-/* line of sight. Uses its own degree/radian constant on purpose so it isn't */
-/* thrown off by /client pi.                                                 */
+/* nearest to you (by distance). No line of    */
+/* sight check. Uses its own degree/radian constant so /client pi can't      */
+/* throw it off.                                                             */
 cc_bool aimbot_enabled = false;
-float   aimbot_range   = 50.0f; /* max distance, blocks */
-float   aimbot_smooth  = 0.0f;  /* 0 = snap instantly, towards 1 = slower */
-cc_bool aimbot_bots    = false; /* also target bots (entities with no tab list entry) */
+float   aimbot_range   = 50.0f;  /* max distance, blocks */
+float   aimbot_smooth  = 0.0f;   /* visible mode: 0 = snap instantly, towards 1 = slower */
+cc_bool aimbot_bots    = false;  /* also target bots (entities with no tab list entry) */
+int     aimbot_silent  = 0;      /* 0 = visible aim, 1 = silent on click, 2 = silent always */
+int     aimbot_fire    = 0;      /* silent-click mode auto-click: 0 off, 1 break, 2 place */
+float   aimbot_fireDelay = 0.25f;/* seconds between auto-clicks */
+float   aimbot_lagMs   = -1.0f;  /* lag compensation: -1 = use ping, 0 = off, >0 = fixed ms */
+
+/* Orientation reported to the server instead of the real view, while set.   */
+/* Read in Protocol.c (position + click packets). Your own screen never uses */
+/* it, which is what makes the aim "silent".                                 */
+cc_bool silent_active = false;
+float   silent_yaw = 0.0f, silent_pitch = 0.0f;
+
+extern int Ping_AveragePingMS(void);
 #define AIM_RAD2DEG 57.2957795f
 
 static float Aim_Wrap180(float a) {
@@ -727,31 +739,35 @@ static float Aim_Wrap180(float a) {
 	return a;
 }
 
-static void Aimbot_Update(void) {
+/* Finds the nearest player. Outputs yaw (degrees) and signed   */
+/* pitch (degrees, positive = down). Leads moving targets by your latency.     */
+cc_bool Aimbot_FindTarget(float* outYaw, float* outPitch, int* outId) {
 	struct Entity* me = &Entities.CurPlayer->Base;
-	struct LocationUpdate update;
 	Vec3 eye;
-	float curYaw, curPitch, yaw, pitch, dx, dy, dz, horiz, dyaw, dpitch, score, rangeSq;
-	float bestScore = 0.0f, bestYaw = 0.0f, bestPitch = 0.0f;
+	float yaw, pitch, dx, dy, dz, horiz, score, rangeSq;
+	float lagSec, lead, bestScore = 0.0f, bestYaw = 0.0f, bestPitch = 0.0f;
 	cc_bool found = false;
-	int i;
-
-	if (!aimbot_enabled || Gui.InputGrab) return;
+	int i, bestId = -1;
 
 	eye      = Entity_GetEyePosition(me);
-	curYaw   = me->next.yaw;
-	curPitch = me->next.pitch;
-	if (curPitch > 180.0f) curPitch -= 360.0f; /* stored as 0-360, up is 270+ */
 	rangeSq  = aimbot_range * aimbot_range;
+
+	/* Lag compensation: lead targets by our latency. Their per-tick movement is */
+	/* taken from their interpolation endpoints; physics ticks are a fixed 20/s.  */
+	/* Horizontal only - vertical movement (jumps/falls) isn't predictable.       */
+	lagSec = aimbot_lagMs < 0.0f ? (float)Ping_AveragePingMS() : aimbot_lagMs;
+	lagSec /= 1000.0f;
+	if (lagSec > 0.5f) lagSec = 0.5f;
+	lead = lagSec * 20.0f;
 
 	for (i = 0; i < MAX_NET_PLAYERS; i++) {
 		struct Entity* t = Entities.List[i];
 		if (!t || t == me) continue;
 		if (!aimbot_bots && !TabList.NameOffsets[i]) continue; /* real players have a tab list entry, bots don't */
 
-		dx = t->Position.x - eye.x;
+		dx = (t->Position.x + (t->next.pos.x - t->prev.pos.x) * lead) - eye.x;
 		dy = (t->Position.y + t->Size.y * 0.6f) - eye.y; /* roughly chest height */
-		dz = t->Position.z - eye.z;
+		dz = (t->Position.z + (t->next.pos.z - t->prev.pos.z) * lead) - eye.z;
 		if (dx * dx + dy * dy + dz * dz > rangeSq) continue;
 
 		/* inverse of Vec3_GetDirVector: x = cos(p)sin(y), y = -sin(p), z = -cos(p)cos(y) */
@@ -761,17 +777,39 @@ static void Aimbot_Update(void) {
 		if (pitch >  89.0f) pitch =  89.0f;
 		if (pitch < -89.0f) pitch = -89.0f;
 
-		dyaw   = Aim_Wrap180(yaw - curYaw);
-		dpitch = pitch - curPitch;
-		score  = dyaw * dyaw + dpitch * dpitch;
+		score = dx * dx + dy * dy + dz * dz; /* nearest player by distance, so it re-targets as others get closer */
 		if (!found || score < bestScore) {
-			found = true; bestScore = score; bestYaw = yaw; bestPitch = pitch;
+			found = true; bestScore = score; bestYaw = yaw; bestPitch = pitch; bestId = i;
 		}
 	}
-	if (!found) return;
+	if (!found) return false;
+	*outYaw = bestYaw; *outPitch = bestPitch; *outId = bestId;
+	return true;
+}
 
-	dyaw   = Aim_Wrap180(bestYaw - curYaw);
-	dpitch = bestPitch - curPitch;
+static void Aimbot_Update(void) {
+	struct Entity* me = &Entities.CurPlayer->Base;
+	struct LocationUpdate update;
+	float yaw, pitch, curYaw, curPitch, dyaw, dpitch;
+	int id;
+
+	silent_active = false; /* recomputed every frame (silent click mode sets it per click, in InputHandler.c) */
+	if (!aimbot_enabled || Gui.InputGrab) return;
+	if (aimbot_silent == 1) return;
+	if (!Aimbot_FindTarget(&yaw, &pitch, &id)) return;
+
+	if (aimbot_silent == 2) {
+		silent_active = true;
+		silent_yaw    = Math_ClampAngle(yaw);
+		silent_pitch  = Math_ClampAngle(pitch);
+		return;
+	}
+
+	curYaw   = me->next.yaw;
+	curPitch = me->next.pitch;
+	if (curPitch > 180.0f) curPitch -= 360.0f;
+	dyaw   = Aim_Wrap180(yaw - curYaw);
+	dpitch = pitch - curPitch;
 	update.flags = LU_HAS_YAW | LU_HAS_PITCH; /* same call mouse-look uses, Camera.c */
 	update.yaw   = Math_ClampAngle(curYaw   + dyaw   * (1.0f - aimbot_smooth));
 	update.pitch = Math_ClampAngle(curPitch + dpitch * (1.0f - aimbot_smooth));

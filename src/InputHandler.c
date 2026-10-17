@@ -463,6 +463,44 @@ int     triggerbot_mode       = 0;
 cc_bool triggerbot_blocksOnly = false;
 cc_bool triggerbot_bots       = false; /* count bots (no tab list entry) as targets */
 
+/* Silent aim (see Aimbot_FindTarget in Game.c), only for /client aimbot silent */
+/* click: around a click, snap what the SERVER sees to the nearest player,     */
+/* click, then snap back - your own view never moves.                          */
+extern cc_bool Aimbot_FindTarget(float* outYaw, float* outPitch, int* outId);
+extern void    Protocol_SendPositionNow(void);
+extern cc_bool aimbot_enabled, silent_active;
+extern int     aimbot_silent, aimbot_fire;
+extern float   aimbot_fireDelay, silent_yaw, silent_pitch;
+static float   silentFireAcc = 0.0f;
+
+/* One full click (break/place) with silent aim. keepHeld = leave the button */
+/* marked held (a real press, released later). False = not active/no target. */
+static cc_bool SilentClick(int button, cc_bool keepHeld) {
+	cc_bool prevActive;
+	float yaw, pitch, prevYaw, prevPitch;
+	int id;
+
+	if (!aimbot_enabled || aimbot_silent != 1) return false;
+	if (!Aimbot_FindTarget(&yaw, &pitch, &id)) return false;
+
+	prevActive = silent_active; prevYaw = silent_yaw; prevPitch = silent_pitch;
+	silent_active = true;
+	silent_yaw    = Math_ClampAngle(yaw);
+	silent_pitch  = Math_ClampAngle(pitch);
+	input_pickingId = id;       /* click packet names the aimed player */
+	input_deltaAcc  = 0;
+	Protocol_SendPositionNow(); /* server sees the aimed orientation first */
+
+	MouseStateUpdate(button, true);
+	if (button == MOUSE_LEFT) { InputHandler_DeleteBlock(); } else { InputHandler_PlaceBlock(); }
+	if (!keepHeld) MouseStateUpdate(button, false);
+
+	silent_active = prevActive; silent_yaw = prevYaw; silent_pitch = prevPitch;
+	input_pickingId = -1;
+	Protocol_SendPositionNow(); /* and straight back to the real view */
+	return true;
+}
+
 void InputHandler_Tick(float delta) {
 	cc_bool left, middle, right;
 	cc_bool trigLeft = false, trigRight = false;
@@ -470,6 +508,13 @@ void InputHandler_Tick(float delta) {
 	
 	input_deltaAcc += delta;
 	if (Gui.InputGrab) return;
+
+	/* Silent auto-fire (/client aimbot fire): own timer, so the delay can go */
+	/* below the 250ms the held-button loop further down is limited to.       */
+	silentFireAcc += delta;
+	if (aimbot_enabled && aimbot_silent == 1 && aimbot_fire && silentFireAcc >= aimbot_fireDelay) {
+		if (SilentClick(aimbot_fire == 1 ? MOUSE_LEFT : MOUSE_RIGHT, false)) silentFireAcc = 0.0f;
+	}
 
 	/* Only tick 4 times per second when held down */
 	if (input_deltaAcc < 0.2495f) return;
@@ -504,6 +549,10 @@ void InputHandler_Tick(float delta) {
 			trigRight = (triggerbot_mode == 2);
 		}
 	}
+
+	/* silent click mode: this tick's whole click goes through SilentClick */
+	if ((left || right || trigLeft || trigRight) &&
+		SilentClick((left || trigLeft) ? MOUSE_LEFT : MOUSE_RIGHT, left || right)) return;
 
 	if (Server.SupportsPlayerClick) {
 		input_pickingId = -1;
@@ -625,6 +674,7 @@ static void InputHandler_CheckZoomFov(void* obj) {
 static cc_bool BindTriggered_DeleteBlock(int key, struct InputDevice* device) {
 	if (Gui.InputGrab) return false;
 	
+	if (SilentClick(MOUSE_LEFT, true)) return true;
 	MouseStatePress(MOUSE_LEFT);
 	InputHandler_DeleteBlock();
 	return true;
@@ -633,6 +683,7 @@ static cc_bool BindTriggered_DeleteBlock(int key, struct InputDevice* device) {
 static cc_bool BindTriggered_PlaceBlock(int key, struct InputDevice* device) {
 	if (Gui.InputGrab) return false;
 	
+	if (SilentClick(MOUSE_RIGHT, true)) return true;
 	MouseStatePress(MOUSE_RIGHT);
 	InputHandler_PlaceBlock();
 	return true;

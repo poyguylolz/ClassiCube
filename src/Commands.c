@@ -1264,7 +1264,8 @@ static struct ChatCommand ViewmodelFovCommand = {
 *#########################################################################################################################*/
 static void Aimbot_Execute(const cc_string* args, int argsCount) {
 	extern cc_bool aimbot_enabled, aimbot_bots;
-	extern float   aimbot_range, aimbot_smooth;
+	extern float   aimbot_range, aimbot_smooth, aimbot_fireDelay, aimbot_lagMs;
+	extern int     aimbot_silent, aimbot_fire;
 	float v;
 
 	if (!argsCount) {
@@ -1295,18 +1296,72 @@ static void Aimbot_Execute(const cc_string* args, int argsCount) {
 		Chat_Add1("&e/client: &fAimbot smoothing is now %f2", &aimbot_smooth);
 		return;
 	}
-	Chat_AddRaw("&e/client: &cUsage: &f/client aimbot [range <blocks> | smooth <0-1>]");
+	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "silent")) {
+		if (String_CaselessEqualsConst(&args[1], "off")) {
+			aimbot_silent = 0;
+			Chat_AddRaw("&aAimbot is now visible (your view snaps to targets).");
+		} else if (String_CaselessEqualsConst(&args[1], "click")) {
+			aimbot_silent = 1;
+			Chat_AddRaw("&aSilent aim: snaps to the nearest player only while you click, hidden from you.");
+		} else if (String_CaselessEqualsConst(&args[1], "always")) {
+			aimbot_silent = 2;
+			Chat_AddRaw("&aSilent aim: the server always sees you aimed at the nearest player, you see nothing.");
+		} else {
+			Chat_AddRaw("&e/client: &cUsage: &f/client aimbot silent <off|click|always>");
+		}
+		return;
+	}
+	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "fire")) {
+		if (String_CaselessEqualsConst(&args[1], "off")) {
+			aimbot_fire = 0;
+			Chat_AddRaw("&aSilent auto-fire off.");
+		} else if (String_CaselessEqualsConst(&args[1], "break")) {
+			aimbot_fire = 1;
+			Chat_AddRaw("&aSilent auto-fire: break (needs &fsilent click&a).");
+		} else if (String_CaselessEqualsConst(&args[1], "place")) {
+			aimbot_fire = 2;
+			Chat_AddRaw("&aSilent auto-fire: place (needs &fsilent click&a).");
+		} else {
+			Chat_AddRaw("&e/client: &cUsage: &f/client aimbot fire <off|break|place>");
+		}
+		return;
+	}
+	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "delay")) {
+		if (!Convert_ParseFloat(&args[1], &v) || v < 0.0f) {
+			Chat_AddRaw("&e/client: &cThat isn't a valid non-negative number (milliseconds).");
+			return;
+		}
+		aimbot_fireDelay = v / 1000.0f;
+		Chat_Add1("&e/client: &fAuto-fire delay is now %f2 ms", &v);
+		return;
+	}
+	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "lag")) {
+		if (String_CaselessEqualsConst(&args[1], "auto")) {
+			aimbot_lagMs = -1.0f;
+			Chat_AddRaw("&aLag compensation: automatic, uses your ping.");
+		} else if (String_CaselessEqualsConst(&args[1], "off")) {
+			aimbot_lagMs = 0.0f;
+			Chat_AddRaw("&aLag compensation off.");
+		} else if (Convert_ParseFloat(&args[1], &v) && v > 0.0f) {
+			aimbot_lagMs = v;
+			Chat_Add1("&e/client: &fLag compensation fixed at %f2 ms", &v);
+		} else {
+			Chat_AddRaw("&e/client: &cUsage: &f/client aimbot lag <auto|off|ms>");
+		}
+		return;
+	}
+	Chat_AddRaw("&e/client: &cUnknown option, see &f/client help aimbot");
 }
 
 static struct ChatCommand AimbotCommand = {
 	"Aimbot", Aimbot_Execute,
 	0,
 	{
-		"&a/client aimbot [range <blocks> | smooth <0-1>]",
-		"&eToggles auto-aim at the player closest to your crosshair.",
-		"&esmooth 0 snaps instantly, higher values turn slower.",
-		"&eDoes not check line of sight, so it aims through walls.",
-		"&e/client aimbot bots &etoggles whether bots count as targets.",
+		"&a/client aimbot &e(toggle). Options: range <blocks>, smooth <0-1>, bots,",
+		"&esilent <off|click|always>, fire <off|break|place>, delay <ms>, lag <auto|off|ms>",
+		"&esilent click: snaps to the nearest player only while you click. always: constantly.",
+		"&eBoth are hidden from your own screen. fire auto-clicks in click mode every delay ms.",
+		"&elag leads moving targets by your ping. No line-of-sight check.",
 	}
 };
 
