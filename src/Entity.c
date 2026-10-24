@@ -1141,8 +1141,24 @@ static void NetPlayer_Tick(struct Entity* e, float delta) {
 	AnimatedComp_Update(e, e->prev.pos, e->next.pos, delta);
 }
 
+/* In-game lag compensation, /client lagcomp in Commands.c. Draws (and picks) */
+/* other players where they probably are NOW instead of where the network     */
+/* last said, by pushing them ahead along their current movement.            */
+/* -1 = use your ping, 0 = off, >0 = fixed milliseconds.                      */
+float lagcomp_ms = 0.0f;
+extern int Ping_AveragePingMS(void);
+
 static void NetPlayer_RenderModel(struct Entity* e, float delta, float t) {
 	Vec3_Lerp(&e->Position, &e->prev.pos, &e->next.pos, t);
+	if (lagcomp_ms != 0.0f) {
+		float ms, lead;
+		ms = lagcomp_ms < 0.0f ? (float)Ping_AveragePingMS() : lagcomp_ms;
+		if (ms > 500.0f) ms = 500.0f;
+		lead = ms * 0.001f * 20.0f; /* in ticks - physics runs at a fixed 20/s */
+		/* horizontal only: jumps/falls aren't predictable from the last step */
+		e->Position.x += (e->next.pos.x - e->prev.pos.x) * lead;
+		e->Position.z += (e->next.pos.z - e->prev.pos.z) * lead;
+	}
 	Entity_LerpAngles(e, t);
 
 	AnimatedComp_GetCurrent(e, t);

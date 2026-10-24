@@ -1264,7 +1264,7 @@ static struct ChatCommand ViewmodelFovCommand = {
 *#########################################################################################################################*/
 static void Aimbot_Execute(const cc_string* args, int argsCount) {
 	extern cc_bool aimbot_enabled, aimbot_bots;
-	extern float   aimbot_range, aimbot_smooth, aimbot_fireDelay, aimbot_lagMs;
+	extern float   aimbot_range, aimbot_smooth, aimbot_fireDelay;
 	extern int     aimbot_silent, aimbot_fire;
 	float v;
 
@@ -1335,21 +1335,6 @@ static void Aimbot_Execute(const cc_string* args, int argsCount) {
 		Chat_Add1("&e/client: &fAuto-fire delay is now %f2 ms", &v);
 		return;
 	}
-	if (argsCount >= 2 && String_CaselessEqualsConst(&args[0], "lag")) {
-		if (String_CaselessEqualsConst(&args[1], "auto")) {
-			aimbot_lagMs = -1.0f;
-			Chat_AddRaw("&aLag compensation: automatic, uses your ping.");
-		} else if (String_CaselessEqualsConst(&args[1], "off")) {
-			aimbot_lagMs = 0.0f;
-			Chat_AddRaw("&aLag compensation off.");
-		} else if (Convert_ParseFloat(&args[1], &v) && v > 0.0f) {
-			aimbot_lagMs = v;
-			Chat_Add1("&e/client: &fLag compensation fixed at %f2 ms", &v);
-		} else {
-			Chat_AddRaw("&e/client: &cUsage: &f/client aimbot lag <auto|off|ms>");
-		}
-		return;
-	}
 	Chat_AddRaw("&e/client: &cUnknown option, see &f/client help aimbot");
 }
 
@@ -1358,10 +1343,10 @@ static struct ChatCommand AimbotCommand = {
 	0,
 	{
 		"&a/client aimbot &e(toggle). Options: range <blocks>, smooth <0-1>, bots,",
-		"&esilent <off|click|always>, fire <off|break|place>, delay <ms>, lag <auto|off|ms>",
+		"&esilent <off|click|always>, fire <off|break|place>, delay <ms>",
 		"&esilent click: snaps to the nearest player only while you click. always: constantly.",
 		"&eBoth are hidden from your own screen. fire auto-clicks in click mode every delay ms.",
-		"&elag leads moving targets by your ping. No line-of-sight check.",
+		"&eNo line-of-sight check, so it aims through walls.",
 	}
 };
 
@@ -1421,6 +1406,66 @@ static struct ChatCommand TriggerbotCommand = {
 };
 
 /*########################################################################################################################*
+*-----------------------------------------------------LagCompCommand------------------------------------------------------*
+*#########################################################################################################################*/
+static void LagComp_Execute(const cc_string* args, int argsCount) {
+	extern float lagcomp_ms;
+	float v;
+
+	if (!argsCount) {
+		if (lagcomp_ms < 0.0f)       Chat_AddRaw("&e/client: &fLag compensation is automatic (uses your ping).");
+		else if (lagcomp_ms == 0.0f) Chat_AddRaw("&e/client: &fLag compensation is off.");
+		else                         Chat_Add1("&e/client: &fLag compensation is fixed at %f2 ms", &lagcomp_ms);
+		return;
+	}
+	if (String_CaselessEqualsConst(&args[0], "auto")) {
+		lagcomp_ms = -1.0f;
+		Chat_AddRaw("&aLag compensation: automatic, uses your ping.");
+	} else if (String_CaselessEqualsConst(&args[0], "off")) {
+		lagcomp_ms = 0.0f;
+		Chat_AddRaw("&aLag compensation off.");
+	} else if (Convert_ParseFloat(&args[0], &v) && v > 0.0f) {
+		lagcomp_ms = v;
+		Chat_Add1("&e/client: &fLag compensation fixed at %f2 ms", &v);
+	} else {
+		Chat_AddRaw("&e/client: &cUsage: &f/client lagcomp <auto|off|ms>");
+	}
+}
+
+static struct ChatCommand LagCompCommand = {
+	"LagComp", LagComp_Execute,
+	0,
+	{
+		"&a/client lagcomp [auto|off|ms]",
+		"&eDraws other players where they probably are right now instead of",
+		"&ewhere the network last said, by pushing them ahead along their",
+		"&ecurrent movement by your ping (auto) or a fixed number of ms.",
+	}
+};
+
+/*########################################################################################################################*
+*-----------------------------------------------------HoldClickCommand----------------------------------------------------*
+*#########################################################################################################################*/
+static void HoldClick_Execute(const cc_string* args, int argsCount) {
+	extern cc_bool holdclick_enabled;
+	holdclick_enabled = !holdclick_enabled;
+	Chat_AddRaw(holdclick_enabled
+		? "&aHold-click on: press break/place once to hold it, press it again to let go."
+		: "&aHold-click off.");
+}
+
+static struct ChatCommand HoldClickCommand = {
+	"HoldClick", HoldClick_Execute,
+	0,
+	{
+		"&a/client holdclick",
+		"&eToggles sticky break/place: press the button once and it stays held,",
+		"&epress it again to release. Works with mouse, keyboard binds, gamepad",
+		"&eand touch taps.",
+	}
+};
+
+/*########################################################################################################################*
 *------------------------------------------------------Commands component-------------------------------------------------*
 *#########################################################################################################################*/
 static void OnInit(void) {
@@ -1451,6 +1496,8 @@ static void OnInit(void) {
 	Commands_Register(&ViewmodelFovCommand);
 	Commands_Register(&AimbotCommand);
 	Commands_Register(&TriggerbotCommand);
+	Commands_Register(&LagCompCommand);
+	Commands_Register(&HoldClickCommand);
 }
 
 static void OnFree(void) {

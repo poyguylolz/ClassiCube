@@ -463,6 +463,28 @@ int     triggerbot_mode       = 0;
 cc_bool triggerbot_blocksOnly = false;
 cc_bool triggerbot_bots       = false; /* count bots (no tab list entry) as targets */
 
+/* Hold-click, /client holdclick in Commands.c. When on, pressing break or place */
+/* once latches it as held (as if you kept the button down), pressing it again   */
+/* lets go. Goes through the same press paths as every input device (mouse,      */
+/* keyboard, gamepad binds and touch taps), so it works on all of them.          */
+cc_bool holdclick_enabled = false;
+static cc_bool hold_left = false, hold_right = false;
+
+/* True if this press only toggled a latch off (caller then skips its own click). */
+static cc_bool HoldClick_Toggle(int button) {
+	cc_bool* mine  = (button == MOUSE_LEFT) ? &hold_left  : &hold_right;
+	cc_bool* other = (button == MOUSE_LEFT) ? &hold_right : &hold_left;
+	if (!holdclick_enabled) return false;
+
+	if (*mine) {
+		*mine = false;
+		if (input_buttonsDown[button]) MouseStateRelease(button);
+		return true;
+	}
+	*mine = true; *other = false; /* first press still clicks normally */
+	return false;
+}
+
 /* Silent aim (see Aimbot_FindTarget in Game.c), only for /client aimbot silent */
 /* click: around a click, snap what the SERVER sees to the nearest player,     */
 /* click, then snap back - your own view never moves.                          */
@@ -509,6 +531,12 @@ void InputHandler_Tick(float delta) {
 	input_deltaAcc += delta;
 	if (Gui.InputGrab) return;
 
+	if (!holdclick_enabled && (hold_left || hold_right)) { /* feature switched off while latched */
+		if (hold_left  && input_buttonsDown[MOUSE_LEFT])  MouseStateRelease(MOUSE_LEFT);
+		if (hold_right && input_buttonsDown[MOUSE_RIGHT]) MouseStateRelease(MOUSE_RIGHT);
+		hold_left = false; hold_right = false;
+	}
+
 	/* Silent auto-fire (/client aimbot fire): own timer, so the delay can go */
 	/* below the 250ms the held-button loop further down is limited to.       */
 	silentFireAcc += delta;
@@ -534,6 +562,10 @@ void InputHandler_Tick(float delta) {
 		middle = false;
 	}
 #endif
+
+	/* latched hold-click counts as the button being held (after the touch override above) */
+	left  = left  || hold_left;
+	right = right || hold_right;
 
 	/* Triggerbot: acts as if the chosen button were held for this tick only. */
 	/* input_buttonsDown is never touched by it, so it can't stay "held" once */
@@ -601,6 +633,8 @@ static void CheckBlockTap(int i) {
 	} else if (Input_TapMode == INPUT_MODE_DELETE) {
 		btn = MOUSE_LEFT;
 	} else { return; }
+
+	if (HoldClick_Toggle(btn)) return;
 
 	pressed = input_buttonsDown[btn];
 	MouseStatePress(btn);
@@ -674,6 +708,7 @@ static void InputHandler_CheckZoomFov(void* obj) {
 static cc_bool BindTriggered_DeleteBlock(int key, struct InputDevice* device) {
 	if (Gui.InputGrab) return false;
 	
+	if (HoldClick_Toggle(MOUSE_LEFT)) return true;
 	if (SilentClick(MOUSE_LEFT, true)) return true;
 	MouseStatePress(MOUSE_LEFT);
 	InputHandler_DeleteBlock();
@@ -683,6 +718,7 @@ static cc_bool BindTriggered_DeleteBlock(int key, struct InputDevice* device) {
 static cc_bool BindTriggered_PlaceBlock(int key, struct InputDevice* device) {
 	if (Gui.InputGrab) return false;
 	
+	if (HoldClick_Toggle(MOUSE_RIGHT)) return true;
 	if (SilentClick(MOUSE_RIGHT, true)) return true;
 	MouseStatePress(MOUSE_RIGHT);
 	InputHandler_PlaceBlock();

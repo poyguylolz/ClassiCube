@@ -722,7 +722,6 @@ cc_bool aimbot_bots    = false;  /* also target bots (entities with no tab list 
 int     aimbot_silent  = 0;      /* 0 = visible aim, 1 = silent on click, 2 = silent always */
 int     aimbot_fire    = 0;      /* silent-click mode auto-click: 0 off, 1 break, 2 place */
 float   aimbot_fireDelay = 0.25f;/* seconds between auto-clicks */
-float   aimbot_lagMs   = -1.0f;  /* lag compensation: -1 = use ping, 0 = off, >0 = fixed ms */
 
 /* Orientation reported to the server instead of the real view, while set.   */
 /* Read in Protocol.c (position + click packets). Your own screen never uses */
@@ -730,7 +729,6 @@ float   aimbot_lagMs   = -1.0f;  /* lag compensation: -1 = use ping, 0 = off, >0
 cc_bool silent_active = false;
 float   silent_yaw = 0.0f, silent_pitch = 0.0f;
 
-extern int Ping_AveragePingMS(void);
 #define AIM_RAD2DEG 57.2957795f
 
 static float Aim_Wrap180(float a) {
@@ -745,29 +743,22 @@ cc_bool Aimbot_FindTarget(float* outYaw, float* outPitch, int* outId) {
 	struct Entity* me = &Entities.CurPlayer->Base;
 	Vec3 eye;
 	float yaw, pitch, dx, dy, dz, horiz, score, rangeSq;
-	float lagSec, lead, bestScore = 0.0f, bestYaw = 0.0f, bestPitch = 0.0f;
+	float bestScore = 0.0f, bestYaw = 0.0f, bestPitch = 0.0f;
 	cc_bool found = false;
 	int i, bestId = -1;
 
 	eye      = Entity_GetEyePosition(me);
 	rangeSq  = aimbot_range * aimbot_range;
 
-	/* Lag compensation: lead targets by our latency. Their per-tick movement is */
-	/* taken from their interpolation endpoints; physics ticks are a fixed 20/s.  */
-	/* Horizontal only - vertical movement (jumps/falls) isn't predictable.       */
-	lagSec = aimbot_lagMs < 0.0f ? (float)Ping_AveragePingMS() : aimbot_lagMs;
-	lagSec /= 1000.0f;
-	if (lagSec > 0.5f) lagSec = 0.5f;
-	lead = lagSec * 20.0f;
 
 	for (i = 0; i < MAX_NET_PLAYERS; i++) {
 		struct Entity* t = Entities.List[i];
 		if (!t || t == me) continue;
 		if (!aimbot_bots && !TabList.NameOffsets[i]) continue; /* real players have a tab list entry, bots don't */
 
-		dx = (t->Position.x + (t->next.pos.x - t->prev.pos.x) * lead) - eye.x;
+		dx = t->Position.x - eye.x;
 		dy = (t->Position.y + t->Size.y * 0.6f) - eye.y; /* roughly chest height */
-		dz = (t->Position.z + (t->next.pos.z - t->prev.pos.z) * lead) - eye.z;
+		dz = t->Position.z - eye.z;
 		if (dx * dx + dy * dy + dz * dz > rangeSq) continue;
 
 		/* inverse of Vec3_GetDirVector: x = cos(p)sin(y), y = -sin(p), z = -cos(p)cos(y) */
