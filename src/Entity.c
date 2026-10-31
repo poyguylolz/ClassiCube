@@ -1148,17 +1148,59 @@ static void NetPlayer_Tick(struct Entity* e, float delta) {
 float lagcomp_ms = 0.0f;
 extern int Ping_AveragePingMS(void);
 
+/* Smoothed per-player velocity, so the lead doesn't flicker. The raw prev->next */
+/* step per tick doesn't work: network updates arrive unevenly, so it is 0 on    */
+/* some ticks and double on others and the player jumps backwards and forwards.  */
+/* Instead velocity is measured from the smooth rendered position over real time */
+/* and eased over roughly 200ms.                                                 */
+static Vec3 lag_lastBase[MAX_NET_PLAYERS];
+static Vec3 lag_vel[MAX_NET_PLAYERS];
+static cc_uint64 lag_stamp[MAX_NET_PLAYERS];
+
+static void NetPlayer_ApplyLagComp(struct Entity* e) {
+	int id = (int)((struct NetPlayer*)e - NetPlayers_List);
+	cc_uint64 now;
+	float ms, dt, dx, dz, a;
+
+	if (id < 0 || id >= MAX_NET_PLAYERS) return;
+	now = Stopwatch_Measure();
+
+	if (!lag_stamp[id]) { /* first time seen */
+		lag_lastBase[id].x = e->Position.x; lag_lastBase[id].z = e->Position.z;
+		lag_vel[id].x = 0.0f; lag_vel[id].z = 0.0f;
+		lag_stamp[id] = now;
+		return;
+	}
+
+	dt = Stopwatch_ElapsedMicroseconds(lag_stamp[id], now) / 1000000.0f;
+	dx = e->Position.x - lag_lastBase[id].x;
+	dz = e->Position.z - lag_lastBase[id].z;
+
+	/* A second render pass in the same frame (e.g. the portal preview) sees an */
+	/* identical position a moment later - skip it, or it would read as "not    */
+	/* moving" and drag the velocity down. Still updates every 50ms when idle.  */
+	if (dt > 0.002f && (dx != 0.0f || dz != 0.0f || dt >= 0.05f)) {
+		if (dt > 0.25f || dx * dx + dz * dz > 25.0f) { /* wasn't drawn for a while, or teleported */
+			lag_vel[id].x = 0.0f; lag_vel[id].z = 0.0f;
+		} else {
+			a = dt / (dt + 0.2f);
+			lag_vel[id].x += (dx / dt - lag_vel[id].x) * a;
+			lag_vel[id].z += (dz / dt - lag_vel[id].z) * a;
+		}
+		lag_lastBase[id].x = e->Position.x; lag_lastBase[id].z = e->Position.z;
+		lag_stamp[id] = now;
+	}
+
+	ms = lagcomp_ms < 0.0f ? (float)Ping_AveragePingMS() : lagcomp_ms;
+	if (ms > 500.0f) ms = 500.0f;
+	/* horizontal only: jumps/falls aren't predictable */
+	e->Position.x += lag_vel[id].x * ms * 0.001f;
+	e->Position.z += lag_vel[id].z * ms * 0.001f;
+}
+
 static void NetPlayer_RenderModel(struct Entity* e, float delta, float t) {
 	Vec3_Lerp(&e->Position, &e->prev.pos, &e->next.pos, t);
-	if (lagcomp_ms != 0.0f) {
-		float ms, lead;
-		ms = lagcomp_ms < 0.0f ? (float)Ping_AveragePingMS() : lagcomp_ms;
-		if (ms > 500.0f) ms = 500.0f;
-		lead = ms * 0.001f * 20.0f; /* in ticks - physics runs at a fixed 20/s */
-		/* horizontal only: jumps/falls aren't predictable from the last step */
-		e->Position.x += (e->next.pos.x - e->prev.pos.x) * lead;
-		e->Position.z += (e->next.pos.z - e->prev.pos.z) * lead;
-	}
+	if (lagcomp_ms != 0.0f) NetPlayer_ApplyLagComp(e);
 	Entity_LerpAngles(e, t);
 
 	AnimatedComp_GetCurrent(e, t);
