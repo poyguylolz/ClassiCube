@@ -97,6 +97,7 @@ add_library(classicube SHARED
         ../../src/LBackend.c
         ../../src/SystemFonts.c
         ../../src/Commands.c
+        ../../src/FakePlayer.c
         ../../src/EntityRenderers.c
         ../../src/Audio_SLES.c
         ../../src/TouchUI.c
