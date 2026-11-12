@@ -348,6 +348,9 @@
     <ClInclude Include="Commands.h">
       <Filter>Header Files\Game</Filter>
     </ClInclude>
+    <ClInclude Include="FakePlayer.h">
+      <Filter>Header Files\Game</Filter>
+    </ClInclude>
     <ClInclude Include="VirtualKeyboard.h">
       <Filter>Source Files\Window</Filter>
     </ClInclude>
@@ -606,6 +609,9 @@
       <Filter>Source Files\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="Commands.c">
+      <Filter>Source Files\Game</Filter>
+    </ClCompile>
+    <ClCompile Include="FakePlayer.c">
       <Filter>Source Files\Game</Filter>
     </ClCompile>
     <ClCompile Include="FancyLighting.c">

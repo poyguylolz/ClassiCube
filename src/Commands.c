@@ -21,6 +21,7 @@
 #include "Options.h"
 #include "Drawer2D.h"
 #include "Audio.h"
+#include "FakePlayer.h"
 
 #define COMMANDS_PREFIX "/client"
 #define COMMANDS_PREFIX_SPACE "/client "
@@ -1498,9 +1499,12 @@ static void OnInit(void) {
 	Commands_Register(&TriggerbotCommand);
 	Commands_Register(&LagCompCommand);
 	Commands_Register(&HoldClickCommand);
+	Commands_Register(&FakePlayerCommand);
+	FakePlayer_Init();
 }
 
 static void OnFree(void) {
+	FakePlayer_Free();
 	cmds_head = NULL;
 }
 

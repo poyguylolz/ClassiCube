@@ -374,6 +374,7 @@
   <ItemGroup>
     <ClInclude Include="Animations.h" />
     <ClInclude Include="Commands.h" />
+    <ClInclude Include="FakePlayer.h" />
     <ClInclude Include="EntityRenderers.h" />
     <ClInclude Include="LBackend.h" />
     <ClInclude Include="Http.h" />
@@ -571,6 +572,7 @@
     <ClCompile Include="Audio_WinMM.c" />
     <ClCompile Include="Certs.c" />
     <ClCompile Include="Commands.c" />
+    <ClCompile Include="FakePlayer.c" />
     <ClCompile Include="EntityRenderers.c" />
     <ClCompile Include="GameVersion.c" />
     <ClCompile Include="Graphics_D3D11.c" />
