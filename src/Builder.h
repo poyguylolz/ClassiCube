@@ -18,6 +18,8 @@ extern struct IGameComponent Builder_Component;
 extern int Builder_SidesLevel, Builder_EdgeLevel;
 /* Whether smooth/advanced lighting mesh builder is used. */
 extern cc_bool Builder_SmoothLighting;
+/* Whether fancy lighting's mesh builder merges neighbouring faces that are lit identically (fewer vertices, same look). */
+extern cc_bool Builder_FancyMerge;
 
 /* Builds the mesh of vertices for the given chunk. */
 /* Returns false if vertex buffer allocation fails */
