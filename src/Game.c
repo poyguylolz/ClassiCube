@@ -912,6 +912,22 @@ static void LimitFPS(void) {
 }
 #endif
 
+#ifndef CC_BUILD_WEB
+/* Some graphics drivers silently go back to vsync a few seconds after it was turned off (e.g. after the window */
+/*  gets moved/composited, or the driver applies its own profile). So while the FPS mode is 'uncapped', the swap interval */
+/*  is asked to be off again every few seconds, which stops the frame rate falling back to the monitor refresh rate. */
+static int vsyncRecheckFrames;
+static CC_INLINE void KeepUncappedFPS(void) {
+	if (Game_FpsLimit != FPS_LIMIT_NONE || Window_Main.Inactive) { vsyncRecheckFrames = 0; return; }
+	if (++vsyncRecheckFrames < 240) return;
+
+	vsyncRecheckFrames = 0;
+	Gfx_SetVSync(false);
+}
+#else
+static CC_INLINE void KeepUncappedFPS(void) { }
+#endif
+
 static CC_INLINE void Game_DrawFrame(float delta, float t) {
 	int i;
 
@@ -1074,6 +1090,7 @@ void Game_RenderFrame(void) {
 
 	if (Game_ScreenshotRequested) Game_TakeScreenshot();
 	Gfx_EndFrame();
+	KeepUncappedFPS();
 	if (gfx_minFrameMs != 0.0f) LimitFPS();
 }
 

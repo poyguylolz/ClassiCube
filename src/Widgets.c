@@ -1701,21 +1701,25 @@ static void TextInputWidget_RemakeTexture(void* widget) {
 static cc_bool TextInputWidget_AllowedChar(void* widget, char c) {
 	struct InputWidget* w = (struct InputWidget*)widget;
 	struct MenuInputDesc* desc;
-	int maxChars;
-	cc_bool valid;
+	cc_string test; char testBuffer[INPUTWIDGET_LEN * 2];
+	int maxChars, pos;
 
 	if (c == '&') return false;
 	desc = &((struct TextInputWidget*)w)->desc;
 
 	if (!desc->VTABLE->IsValidChar(desc, c)) return false;
 	maxChars = w->GetMaxLines() * INPUTWIDGET_LEN;
-	if (w->text.length == maxChars) return false;
+	if (w->text.length >= maxChars) return false;
 
-	/* See if the new string is in valid format */
-	InputWidget_AppendChar(w, c);
-	valid = desc->VTABLE->IsValidString(desc, &w->text);
-	InputWidget_DeleteChar(w);
-	return valid;
+	/* See if the new string is in valid format. */
+	/* This is done on a copy of the text, so the real text and caret position are never modified by just checking a character */
+	/* (previously the character was inserted into the real text and then deleted again, which relied on the caret being in the same place afterwards) */
+	String_InitArray(test, testBuffer);
+	String_Copy(&test, &w->text);
+
+	pos = (w->caretPos < 0 || w->caretPos > test.length) ? test.length : w->caretPos;
+	String_InsertAt(&test, pos, c);
+	return desc->VTABLE->IsValidString(desc, &test);
 }
 
 void TextInputWidget_OpenKeyboard(struct TextInputWidget* w, struct InputDevice* device) {

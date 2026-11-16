@@ -128,6 +128,11 @@ static void CallTexSubImage2D(int lvl, int x, int y, int width, int height, void
 	Mem_Free(tmp);
 }
 
+/* Picking the nearest mipmap level (instead of blending 2 levels) halves the texture fetches needed per pixel */
+#ifndef GL_NEAREST_MIPMAP_NEAREST
+#define GL_NEAREST_MIPMAP_NEAREST 0x2700
+#endif
+
 static void CallTexImage2D(int lvl, int width, int height, void* pixels) {
 	void* tmp;
 	if (!convert_rgba) {
@@ -147,6 +152,22 @@ static void CallTexImage2D(int lvl, int width, int height, void* pixels) {
 	Mem_Free(tmp);
 }
 
+/* Animated textures (water, lava, fire..) call this every few ticks, so the temporary bitmaps for each mipmap level */
+/*  are kept around and reused, instead of being allocated and freed again for every level of every single update */
+static BitmapCol* mip_scratch[2];
+static int        mip_scratchSize[2];
+
+static BitmapCol* GetMipScratch(int which, int pixels) {
+	if (mip_scratchSize[which] < pixels) {
+		BitmapCol* mem = (BitmapCol*)Mem_TryAlloc(pixels, BITMAPCOLOR_SIZE);
+		if (!mem) return NULL;
+		if (mip_scratch[which]) Mem_Free(mip_scratch[which]);
+		mip_scratch[which]     = mem;
+		mip_scratchSize[which] = pixels;
+	}
+	return mip_scratch[which];
+}
+
 static void Gfx_DoMipmaps(int x, int y, struct Bitmap* bmp, int rowWidth, cc_bool partial) {
 	BitmapCol* prev = bmp->scan0;
 	BitmapCol* cur;
@@ -159,7 +180,9 @@ static void Gfx_DoMipmaps(int x, int y, struct Bitmap* bmp, int rowWidth, cc_boo
 		if (width > 1)  width /= 2;
 		if (height > 1) height /= 2;
 
-		cur = (BitmapCol*)Mem_Alloc(width * height, BITMAPCOLOR_SIZE, "mipmaps");
+		/* alternate between 2 scratch buffers, as the previous level is the source for the next one */
+		cur = GetMipScratch(lvl & 1, width * height);
+		if (!cur) return;
 		GenMipmaps(width, height, cur, prev, rowWidth);
 
 		if (partial) {
@@ -168,11 +191,9 @@ static void Gfx_DoMipmaps(int x, int y, struct Bitmap* bmp, int rowWidth, cc_boo
 			CallTexImage2D(lvl, width, height, cur);
 		}
 
-		if (prev != bmp->scan0) Mem_Free(prev);
-		prev    = cur;
+		prev     = cur;
 		rowWidth = width;
 	}
-	if (prev != bmp->scan0) Mem_Free(prev);
 }
 
 /* TODO: Use GL_UNPACK_ROW_LENGTH for Desktop OpenGL instead */
@@ -205,7 +226,7 @@ GfxResourceID Gfx_AllocTexture(struct Bitmap* bmp, int rowWidth, cc_uint8 flags,
 	_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (flags & TEXTURE_FLAG_BILINEAR) ? GL_LINEAR : GL_NEAREST);
 
 	if (mipmaps) {
-		_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_LINEAR);
+		_glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
 		if (customMipmapsLevels) {
 			int lvls = CalcMipmapsLevels(bmp->width, bmp->height);
 			_glTexParameteri(GL_TEXTURE_2D, _GL_TEXTURE_MAX_LEVEL, lvls);

@@ -393,7 +393,7 @@ void Gfx_DeleteTexture(GfxResourceID* texId) { D3D9_FreeResource(*texId); *texId
 
 void Gfx_EnableMipmaps(void) {
 	if (!Gfx.Mipmaps) return;
-	IDirect3DDevice9_SetSamplerState(device, 0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
+	IDirect3DDevice9_SetSamplerState(device, 0, D3DSAMP_MIPFILTER, D3DTEXF_POINT); /* nearest mip level, cheaper than blending 2 levels */
 }
 
 void Gfx_DisableMipmaps(void) {
