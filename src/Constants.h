@@ -6,15 +6,15 @@ Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 */
 
 #define GAME_MAX_CMDARGS 5
-#define GAME_APP_VER "alpha 0.52"
+#define GAME_APP_VER "alpha 0.60 dev"
 
 #if defined CC_BUILD_WEB
-#define GAME_APP_ALT   "PiCube alpha 0.52 web mobile"
-#define GAME_APP_NAME  "PiCube alpha 0.52 web"
+#define GAME_APP_ALT   "PiCube alpha 0.60 dev web mobile"
+#define GAME_APP_NAME  "PiCube alpha 0.60 dev web"
 #define GAME_APP_TITLE "PiCube"
 #else
-#define GAME_APP_NAME  "PiCube alpha 0.52"
-#define GAME_APP_TITLE "PiCube alpha 0.52"
+#define GAME_APP_NAME  "PiCube alpha 0.60"
+#define GAME_APP_TITLE "PiCube alpha 0.60 dev"
 #endif
 
 /* Max number of characters strings can have. */
