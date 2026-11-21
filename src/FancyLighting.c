@@ -211,32 +211,56 @@ static cc_bool CanLightPass(BlockID thisBlock, Face face) {
 	if (Blocks.Brightness[thisBlock]) { return true; }
 	if (IsFullOpaque(thisBlock)) { return false; }
 	/* Is stone's face hidden by thisBlock? TODO: Don't hardcode using stone */
-	return !Block_IsFaceHidden(BLOCK_STONE, thisBlock, face);
+	return !Block_IsFaceHiddenFast(BLOCK_STONE, thisBlock, face);
 }
 
+/* NOTE: The cheapest check (is the neighbour already at least this bright?) is done first, as in a lit area */
+/* nearly all neighbours fail it. All the checks are side-effect free, so the order doesn't change the result. */
 #define Light_TrySpreadInto(axis, AXIS, dir, limit, isLamp, thisFace, thatFace) \
 	if (ln.coords.axis dir ## = limit && \
+		GetBrightness(ln.coords.x, ln.coords.y, ln.coords.z, isLamp) < ln.brightness && \
 		CanLightPass(thisBlock, FACE_ ## AXIS ## thisFace) && \
-		CanLightPass(World_GetBlock(ln.coords.x, ln.coords.y, ln.coords.z), FACE_ ## AXIS ## thatFace) && \
-		GetBrightness(ln.coords.x, ln.coords.y, ln.coords.z, isLamp) < ln.brightness) { \
+		CanLightPass(World_GetBlock(ln.coords.x, ln.coords.y, ln.coords.z), FACE_ ## AXIS ## thatFace)) { \
 		Queue_Enqueue(&lightQueue, &ln); \
 	} \
 
 static void FlushLightQueue(cc_bool isLamp, cc_bool refreshChunk) {
 	struct LightNode ln;
-	cc_uint8 brightnessHere;
+	cc_uint8 brightnessHere, shift, clearMask;
+	cc_uint8* data;
+	int chunkIndex, localIndex;
 	BlockID thisBlock;
+
+	shift     = isLamp ? FANCY_LIGHTING_LAMP_SHIFT : 0;
+	clearMask = (cc_uint8)~(FANCY_LIGHTING_MAX_LEVEL << shift);
 
 	while (lightQueue.count > 0) {
 		ln = *(struct LightNode*)(Queue_Dequeue(&lightQueue));
 
-		brightnessHere = GetBrightness(ln.coords.x, ln.coords.y, ln.coords.z, isLamp);
+		if (refreshChunk) {
+			brightnessHere = GetBrightness(ln.coords.x, ln.coords.y, ln.coords.z, isLamp);
 
-		/* If this cell is already more lit, we can assume this cell and its neighbors have been accounted for */
-		if (brightnessHere >= ln.brightness) { continue; }
-		if (ln.brightness == 0) { continue; }
+			/* If this cell is already more lit, we can assume this cell and its neighbors have been accounted for */
+			if (brightnessHere >= ln.brightness) { continue; }
+			if (ln.brightness == 0) { continue; }
 
-		SetBrightness(ln.brightness, ln.coords.x, ln.coords.y, ln.coords.z, isLamp, refreshChunk);
+			SetBrightness(ln.brightness, ln.coords.x, ln.coords.y, ln.coords.z, isLamp, refreshChunk);
+		} else {
+			/* Same as GetBrightness + SetBrightness (without refreshing chunks), but only works out where the cell is once */
+			chunkIndex = ChunkCoordsToIndex(ln.coords.x >> CHUNK_SHIFT, ln.coords.y >> CHUNK_SHIFT, ln.coords.z >> CHUNK_SHIFT);
+			localIndex = LocalCoordsToIndex(ln.coords.x & CHUNK_MASK, ln.coords.y & CHUNK_MASK, ln.coords.z & CHUNK_MASK);
+			data       = chunkLightingData[chunkIndex];
+
+			brightnessHere = data ? ((data[localIndex] >> shift) & FANCY_LIGHTING_MAX_LEVEL) : 0;
+			if (brightnessHere >= ln.brightness) { continue; }
+			if (ln.brightness == 0) { continue; }
+
+			if (data == NULL) {
+				data = (cc_uint8*)Mem_TryAllocCleared(CHUNK_SIZE_3, sizeof(cc_uint8));
+				chunkLightingData[chunkIndex] = data;
+			}
+			data[localIndex] = (data[localIndex] & clearMask) | (ln.brightness << shift);
+		}
 
 		thisBlock = World_GetBlock(ln.coords.x, ln.coords.y, ln.coords.z);
 		ln.brightness--;
@@ -270,7 +294,7 @@ cc_uint8 GetBlockBrightness(BlockID curBlock, cc_bool isLamp) {
 	node.coords.x = X; node.coords.y = Y; node.coords.z = Z; node.brightness = bright;
 
 static void CalculateChunkLightingSelf(int chunkIndex, int cx, int cy, int cz) {
-	int x, y, z;
+	int x, y, z, rowIndex;
 	/* Block coordinates */
 	int chunkStartX, chunkStartY, chunkStartZ, chunkEndX, chunkEndY, chunkEndZ;
 	cc_uint8 brightness;
@@ -290,9 +314,12 @@ static void CalculateChunkLightingSelf(int chunkIndex, int cx, int cy, int cz) {
 
 	for (y = chunkStartY; y < chunkEndY; y++) {
 		for (z = chunkStartZ; z < chunkEndZ; z++) {
-			for (x = chunkStartX; x < chunkEndX; x++) {
+			/* walk along the row of blocks directly, instead of working out the index of every block from x/y/z */
+			rowIndex = World_Pack(chunkStartX, y, z);
 
-				curBlock = World_GetBlock(x, y, z);
+			for (x = chunkStartX; x < chunkEndX; x++, rowIndex++) {
+
+				curBlock = (BlockID)World_GetRawBlock(rowIndex);
 				
 				if (Blocks.Brightness[curBlock] > 0) {
 

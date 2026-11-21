@@ -136,6 +136,19 @@ void Block_SetSide(TextureLoc texLoc, BlockID blockId);
 
 /* Dynamically checks whether the given face of this block is occluded/hidden by other */
 cc_bool Block_IsFaceHidden(BlockID block, BlockID other, int face);
+/* Same result as Block_IsFaceHidden, but answers the 2 most common cases without a function call: */
+/*  1) solid block next to solid block  2) anything next to air (or another block that isn't drawn) */
+/* (Block_IsFaceHidden is called for every face of every block when building chunks and spreading light) */
+static CC_INLINE cc_bool Block_IsFaceHiddenFast(BlockID block, BlockID other, int face) {
+	if (Blocks.FullOpaque[block] && Blocks.FullOpaque[other]) return true;
+	/* NOTE: same exceptions as Block_MightCull, which would otherwise return false */
+	if (Blocks.Draw[other] == DRAW_GAS && block != other
+		&& !((block == BLOCK_WATER || block == BLOCK_STILL_WATER) && (other == BLOCK_LAVA || other == BLOCK_STILL_LAVA))
+		&& Blocks.Draw[block] != DRAW_SPRITE) {
+		return false;
+	}
+	return Block_IsFaceHidden(block, other, face);
+}
 
 /* Whether blocks can be automatically rotated */
 extern cc_bool AutoRotate_Enabled;

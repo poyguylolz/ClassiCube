@@ -193,7 +193,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 
 				if (Builder_Counts[index] == 0 ||
 					(x == 0 && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(x != 0 && Block_IsFaceHidden(b, Builder_Chunk[cIndex - 1], FACE_XMIN))) {
+					(x != 0 && Block_IsFaceHiddenFast(b, Builder_Chunk[cIndex - 1], FACE_XMIN))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchZ(index, x, y, z, cIndex, b, FACE_XMIN);
@@ -202,7 +202,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 				index++;
 				if (Builder_Counts[index] == 0 ||
 					(x == World.MaxX && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(x != World.MaxX && Block_IsFaceHidden(b, Builder_Chunk[cIndex + 1], FACE_XMAX))) {
+					(x != World.MaxX && Block_IsFaceHiddenFast(b, Builder_Chunk[cIndex + 1], FACE_XMAX))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchZ(index, x, y, z, cIndex, b, FACE_XMAX);
@@ -211,7 +211,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 				index++;
 				if (Builder_Counts[index] == 0 ||
 					(z == 0 && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(z != 0 && Block_IsFaceHidden(b, Builder_Chunk[cIndex - EXTCHUNK_SIZE], FACE_ZMIN))) {
+					(z != 0 && Block_IsFaceHiddenFast(b, Builder_Chunk[cIndex - EXTCHUNK_SIZE], FACE_ZMIN))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_ZMIN);
@@ -220,7 +220,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 				index++;
 				if (Builder_Counts[index] == 0 ||
 					(z == World.MaxZ && (y < Builder_SidesLevel || (b >= BLOCK_WATER && b <= BLOCK_STILL_LAVA && y < Builder_EdgeLevel))) ||
-					(z != World.MaxZ && Block_IsFaceHidden(b, Builder_Chunk[cIndex + EXTCHUNK_SIZE], FACE_ZMAX))) {
+					(z != World.MaxZ && Block_IsFaceHiddenFast(b, Builder_Chunk[cIndex + EXTCHUNK_SIZE], FACE_ZMAX))) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_ZMAX);
@@ -228,7 +228,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 
 				index++;
 				if (Builder_Counts[index] == 0 || y == 0 ||
-					Block_IsFaceHidden(b, Builder_Chunk[cIndex - EXTCHUNK_SIZE_2], FACE_YMIN)) {
+					Block_IsFaceHiddenFast(b, Builder_Chunk[cIndex - EXTCHUNK_SIZE_2], FACE_YMIN)) {
 					Builder_Counts[index] = 0;
 				} else {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_YMIN);
@@ -236,7 +236,7 @@ static void PrepareChunk(int x1, int y1, int z1) {
 
 				index++;
 				if (Builder_Counts[index] == 0 ||
-					Block_IsFaceHidden(b, Builder_Chunk[cIndex + EXTCHUNK_SIZE_2], FACE_YMAX)) {
+					Block_IsFaceHiddenFast(b, Builder_Chunk[cIndex + EXTCHUNK_SIZE_2], FACE_YMAX)) {
 					Builder_Counts[index] = 0;
 				} else if (b < BLOCK_WATER || b > BLOCK_STILL_LAVA) {
 					Builder_Counts[index] = Builder_StretchX(index, x, y, z, cIndex, b, FACE_YMAX);
@@ -597,7 +597,7 @@ static PackedCol Normal_LightColor(int x, int y, int z, Face face, BlockID block
 static cc_bool Normal_CanStretch(BlockID initial, int chunkIndex, int x, int y, int z, Face face) {
 	BlockID cur = Builder_Chunk[chunkIndex];
 
-	if (cur != initial || Block_IsFaceHidden(cur, Builder_Chunk[chunkIndex + Builder_Offsets[face]], face)) return false;
+	if (cur != initial || Block_IsFaceHiddenFast(cur, Builder_Chunk[chunkIndex + Builder_Offsets[face]], face)) return false;
 	if (Builder_FullBright) return true;
 
 	return Normal_LightColor(Builder_X, Builder_Y, Builder_Z, face, initial) == Normal_LightColor(x, y, z, face, cur);
@@ -899,7 +899,7 @@ static cc_bool Adv_CanStretch(BlockID initial, int chunkIndex, int x, int y, int
 	adv_bitFlags[chunkIndex] = Adv_ComputeLightFlags(x, y, z, chunkIndex);
 
 	return cur == initial
-		&& !Block_IsFaceHidden(cur, Builder_Chunk[chunkIndex + Builder_Offsets[face]], face)
+		&& !Block_IsFaceHiddenFast(cur, Builder_Chunk[chunkIndex + Builder_Offsets[face]], face)
 		&& (adv_initBitFlags == adv_bitFlags[chunkIndex]
 		/* Check that this face is either fully bright or fully in shadow */
 		&& (adv_initBitFlags == 0 || (adv_initBitFlags & adv_masks[face]) == adv_masks[face]));
@@ -1308,6 +1308,7 @@ static CC_INLINE BlockID Modern_GetBlock(int x, int y, int z) {
 }
 
 static void Modern_FaceColors(Face face, int x, int y, int z, PackedCol* c);
+static void Modern_FaceColorsCached(Face face, int x, int y, int z, PackedCol* c);
 
 static cc_bool Modern_IsOccluded(int x, int y, int z) {
 	BlockID block = Modern_GetBlock(x, y, z);
@@ -1348,7 +1349,7 @@ static void Modern_DrawXMin(int count, int x, int y, int z) {
 	struct VertexTextured* vertices, v;
 
 	{ PackedCol cols[4];
-	Modern_FaceColors(FACE_XMIN, x, y, z, cols);
+	Modern_FaceColorsCached(FACE_XMIN, x, y, z, cols);
 	  col0_0 = cols[0]; col1_0 = cols[1]; col1_1 = cols[2]; col0_1 = cols[3]; }
 	if (adv_tinted) {
 		tint   = Blocks.FogCol[Builder_Block];
@@ -1379,7 +1380,7 @@ static void Modern_DrawXMax(int count, int x, int y, int z) {
 	struct VertexTextured* vertices, v;
 
 	{ PackedCol cols[4];
-	Modern_FaceColors(FACE_XMAX, x, y, z, cols);
+	Modern_FaceColorsCached(FACE_XMAX, x, y, z, cols);
 	  col0_0 = cols[0]; col1_0 = cols[1]; col1_1 = cols[2]; col0_1 = cols[3]; }
 	if (adv_tinted) {
 		tint   = Blocks.FogCol[Builder_Block];
@@ -1410,7 +1411,7 @@ static void Modern_DrawZMin(int count, int x, int y, int z) {
 	struct VertexTextured* vertices, v;
 
 	{ PackedCol cols[4];
-	Modern_FaceColors(FACE_ZMIN, x, y, z, cols);
+	Modern_FaceColorsCached(FACE_ZMIN, x, y, z, cols);
 	  col0_0 = cols[0]; col1_0 = cols[1]; col1_1 = cols[2]; col0_1 = cols[3]; }
 	if (adv_tinted) {
 		tint   = Blocks.FogCol[Builder_Block];
@@ -1441,7 +1442,7 @@ static void Modern_DrawZMax(int count, int x, int y, int z) {
 	struct VertexTextured* vertices, v;
 
 	{ PackedCol cols[4];
-	Modern_FaceColors(FACE_ZMAX, x, y, z, cols);
+	Modern_FaceColorsCached(FACE_ZMAX, x, y, z, cols);
 	  col0_0 = cols[0]; col1_0 = cols[1]; col1_1 = cols[2]; col0_1 = cols[3]; }
 	if (adv_tinted) {
 		tint   = Blocks.FogCol[Builder_Block];
@@ -1472,7 +1473,7 @@ static void Modern_DrawYMin(int count, int x, int y, int z) {
 	struct VertexTextured* vertices, v;
 
 	{ PackedCol cols[4];
-	Modern_FaceColors(FACE_YMIN, x, y, z, cols);
+	Modern_FaceColorsCached(FACE_YMIN, x, y, z, cols);
 	  col0_0 = cols[0]; col1_0 = cols[1]; col1_1 = cols[2]; col0_1 = cols[3]; }
 	if (adv_tinted) {
 		tint   = Blocks.FogCol[Builder_Block];
@@ -1504,7 +1505,7 @@ static void Modern_DrawYMax(int count, int x, int y, int z) {
 	struct VertexTextured* vertices, v;
 
 	{ PackedCol cols[4];
-	Modern_FaceColors(FACE_YMAX, x, y, z, cols);
+	Modern_FaceColorsCached(FACE_YMAX, x, y, z, cols);
 	  col0_0 = cols[0]; col1_0 = cols[1]; col1_1 = cols[2]; col0_1 = cols[3]; }
 	if (adv_tinted) {
 		tint   = Blocks.FogCol[Builder_Block];
@@ -1594,6 +1595,24 @@ static void Modern_FaceColors(Face face, int x, int y, int z, PackedCol* c) {
 	}
 }
 
+/* Colours of faces are needed twice when faces get merged: once to decide whether faces can be merged, and again when */
+/*  the merged face is drawn. So colours worked out while merging are remembered for the chunk being built. */
+/* (one entry per face of every block in the chunk, indexed the same way as Builder_Counts) */
+static PackedCol modern_colCache[CHUNK_SIZE_3 * FACE_COUNT][4];
+static cc_uint8  modern_colValid[CHUNK_SIZE_3 * FACE_COUNT];
+
+static void Modern_FaceColorsCached(Face face, int x, int y, int z, PackedCol* c) {
+	int idx;
+	if (Builder_FullBright) { Modern_FaceColors(face, x, y, z, c); return; }
+
+	idx = Builder_PackCount(x - Builder_OriginX, y - Builder_OriginY, z - Builder_OriginZ) + face;
+	if (!modern_colValid[idx]) {
+		Modern_FaceColors(face, x, y, z, modern_colCache[idx]);
+		modern_colValid[idx] = 1;
+	}
+	Mem_Copy(c, modern_colCache[idx], 4 * sizeof(PackedCol));
+}
+
 /* Whether a face's colour is constant along the direction faces get merged in. */
 /* X faces are merged along Z (corners 0/3 and 1/2 line up), all other faces along X (corners 0/1 and 3/2 line up) */
 static cc_bool Modern_ConstantAlongRun(Face face, const PackedCol* c) {
@@ -1621,18 +1640,18 @@ static int Modern_StretchRun(int countIndex, int x, int y, int z, int chunkIndex
 		while (pos < end) {
 			other = Builder_Chunk[chunkIndex];
 			if (other != block) break;
-			if (Block_IsFaceHidden(other, Builder_Chunk[chunkIndex + Builder_Offsets[face]], face)) break;
+			if (Block_IsFaceHiddenFast(other, Builder_Chunk[chunkIndex + Builder_Offsets[face]], face)) break;
 			if (liquid && Builder_OccludedLiquid(chunkIndex)) break;
 
 			if (!Builder_FullBright) {
 				/* only worth working out colours once there is a neighbour that could be merged */
 				if (!haveInit) {
-					Modern_FaceColors(face, x, y, z, init);
+					Modern_FaceColorsCached(face, x, y, z, init);
 					if (!Modern_ConstantAlongRun(face, init)) break;
 					haveInit = true;
 				}
-				if (alongX) { Modern_FaceColors(face, pos, y, z, cur); }
-				else        { Modern_FaceColors(face, x, y, pos, cur); }
+				if (alongX) { Modern_FaceColorsCached(face, pos, y, z, cur); }
+				else        { Modern_FaceColorsCached(face, x, y, pos, cur); }
 				if (!Modern_SameColors(init, cur)) break;
 			}
 
@@ -1688,6 +1707,7 @@ static void Modern_RenderBlock(int index, int x, int y, int z) {
 static void Modern_PrePrepareChunk(void) {
 	DefaultPrePrepateChunk();
 	adv_bitFlags = Builder_BitFlags;
+	Mem_Set(modern_colValid, 0, sizeof(modern_colValid));
 }
 
 static void ModernBuilder_SetActive(void) {
