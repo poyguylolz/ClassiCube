@@ -169,7 +169,8 @@ static void Png_Reconstruct(cc_uint8 type, cc_uint8 bytesPerPixel, cc_uint8* lin
 		return;
 
 	case PNG_FILTER_AVERAGE:
-		for (i = 0; i < bytesPerPixel; i++) {
+		/* NOTE: also limited by lineLen, otherwise a zero width image would write past its row */
+		for (i = 0; i < bytesPerPixel && i < lineLen; i++) {
 			line[i] += (prior[i] >> 1);
 		}
 		for (j = 0; i < lineLen; i++, j++) {
@@ -179,7 +180,7 @@ static void Png_Reconstruct(cc_uint8 type, cc_uint8 bytesPerPixel, cc_uint8* lin
 
 	case PNG_FILTER_PAETH:
 		/* TODO: verify this is right */
-		for (i = 0; i < bytesPerPixel; i++) {
+		for (i = 0; i < bytesPerPixel && i < lineLen; i++) {
 			line[i] += prior[i];
 		}
 		for (j = 0; i < lineLen; i++, j++) {
@@ -433,6 +434,8 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 		/* 11.2.2 IHDR Image header */
 		case PNG_FourCC('I','H','D','R'): {
 			if (dataSize != PNG_IHDR_SIZE) return DecodeFailure(bmp, PNG_ERR_INVALID_HDR_SIZE);
+			/* A second header would change the image size after the pixel buffer was already allocated and partly filled */
+			if (data) return DecodeFailure(bmp, PNG_ERR_DUP_HEADER);
 
 			res = Stream_Read(stream, tmp, PNG_IHDR_SIZE);
 			if (res) return DecodeFailure(bmp, res);
@@ -441,6 +444,7 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 			bmp->height = (int)Mem_ReadU32_BE(tmp + 4);
 			if (bmp->width  < 0 || bmp->width  > PNG_MAX_DIMS) return DecodeFailure(bmp, PNG_ERR_TOO_WIDE);
 			if (bmp->height < 0 || bmp->height > PNG_MAX_DIMS) return DecodeFailure(bmp, PNG_ERR_TOO_TALL);
+			if (bmp->width == 0 || bmp->height == 0)           return DecodeFailure(bmp, PNG_ERR_EMPTY_IMAGE);
 
 			bitsPerSample = tmp[8]; colorspace = tmp[9];
 			if (bitsPerSample == 16) return DecodeFailure(bmp, PNG_ERR_16BITSAMPLES);
@@ -455,6 +459,11 @@ cc_result Png_Decode(struct Bitmap* bmp, struct Stream* stream) {
 			bytesPerPixel = ((samplesPerPixel[colorspace] * bitsPerSample) + 7) >> 3;
 			scanlineSize  = ((samplesPerPixel[colorspace] * bitsPerSample * bmp->width) + 7) >> 3;
 			scanlineBytes = scanlineSize + 1; /* Add 1 byte for filter byte of each scanline */
+
+			/* height * scanlineBytes is stored in 32 bits below, so make sure it can't wrap around to a small number */
+			if ((cc_uint64)bmp->height * (cc_uint64)max(scanlineBytes, (cc_uint32)bmp->width * 4) > 0x7FFFFFFFULL) {
+				return DecodeFailure(bmp, PNG_ERR_TOO_TALL);
+			}
 
 			data = (cc_uint8*)Mem_TryAlloc(bmp->height, max(scanlineBytes, bmp->width * 4));
 			bmp->scan0 = (BitmapCol*)data;

@@ -35,6 +35,9 @@ CC_VAR extern struct _CameraData {
 	struct Camera* Active;
 	/* The mass (i.e. smoothness) of the smooth camera. */
 	float Mass;
+	/* How much (in milliseconds) slow mouse movement is smoothed when the smooth camera is off. 0 = off. */
+	/* Hides the visible 'steps' you get between mouse counts at higher sensitivities. */
+	float AntiGrid;
 	/* Field of view of the camera */
 	int Fov, DefaultFov, ZoomFov;
 

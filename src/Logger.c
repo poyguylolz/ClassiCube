@@ -73,6 +73,8 @@ static const char* GetCCErrorDesc(cc_result res) {
 	case PNG_ERR_INVALID_SIG:      return "Only PNG images supported";
 	case PNG_ERR_INVALID_HDR_SIZE: return "Invalid PNG header size";
 	case PNG_ERR_TOO_WIDE:         return "PNG image too wide";
+	case PNG_ERR_EMPTY_IMAGE:      return "PNG image has no pixels";
+	case PNG_ERR_DUP_HEADER:       return "PNG image has multiple headers";
 	case PNG_ERR_TOO_TALL:         return "PNG image too tall";
 	case PNG_ERR_INTERLACED:       return "Interlaced PNGs unsupported";
 	case PNG_ERR_REACHED_IEND:     return "Incomplete PNG image data";

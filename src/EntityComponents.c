@@ -723,6 +723,8 @@ void PhysicsComp_Init(struct PhysicsComp* comp, struct Entity* entity) {
 }
 
 static cc_bool PhysicsComp_TouchesLiquid(BlockID block) { return Blocks.Collide[block] == COLLIDE_LIQUID; }
+static int PM_WaterLevel(struct Entity* e, cc_uint8* liquidType);
+
 void PhysicsComp_UpdateVelocityState(struct PhysicsComp* comp) {
 	struct Entity* entity   = comp->Entity;
 	struct HacksComp* hacks = comp->Hacks;
@@ -732,7 +734,7 @@ void PhysicsComp_UpdateVelocityState(struct PhysicsComp* comp) {
 	cc_bool touchWater, touchLava;
 	cc_bool liquidFeet, liquidRest;
 	int feetY, bodyY, headY;
-	cc_bool pastJumpPoint;
+	cc_bool pastJumpPoint, hlSwim;
 
 	if (hacks->Floating) {
 		entity->Velocity.y = 0.0f; /* eliminate the effect of gravity */
@@ -745,9 +747,17 @@ void PhysicsComp_UpdateVelocityState(struct PhysicsComp* comp) {
 		entity->Velocity.y = 0.02f;
 	}
 
-	if (!comp->Jumping) { comp->CanLiquidJump = false; return; }
+	if (!comp->Jumping) { comp->CanLiquidJump = false; comp->JumpLatched = false; return; }
 	touchWater = Entity_TouchesAnyWater(entity);
 	touchLava  = Entity_TouchesAnyLava(entity);
+
+	hlSwim = physics_airstrafeEnabled && physics_airstrafe.swim && !hacks->Floating;
+	if (hlSwim) {
+		/* Half-Life: jumping while swimming just sets your upward speed (PM_Jump), which is done together with the rest */
+		/*  of the swimming in PhysicsComp_MoveHLWater. Touching water with just your feet is walking, not swimming. */
+		if (PM_WaterLevel(entity, NULL) >= 2 || comp->WaterJumpTicks > 0) return;
+		touchWater = false; touchLava = false;
+	}
 
 	if (touchWater || touchLava) {
 		Entity_GetBounds(entity, &bounds);
@@ -776,7 +786,7 @@ void PhysicsComp_UpdateVelocityState(struct PhysicsComp* comp) {
 			}
 			comp->CanLiquidJump = false;
 		}
-	} else if (comp->UseLiquidGravity) {
+	} else if (comp->UseLiquidGravity && !hlSwim) {
 		entity->Velocity.y += 0.04f;
 		if (hacks->Speeding     && hacks->CanSpeed) entity->Velocity.y += 0.04f;
 		if (hacks->HalfSpeeding && hacks->CanSpeed) entity->Velocity.y += 0.02f;
@@ -785,7 +795,12 @@ void PhysicsComp_UpdateVelocityState(struct PhysicsComp* comp) {
 		entity->Velocity.y += (hacks->Speeding && hacks->CanSpeed) ? 0.15f : 0.10f;
 		comp->CanLiquidJump = false;
 	} else if (entity->OnGround) {
-		PhysicsComp_DoNormalJump(comp);
+		if (physics_airstrafeEnabled && !physics_airstrafe.autohop && !hacks->Floating && comp->JumpLatched) {
+			/* Half-Life's PM_Jump: "don't pogo stick" - you can't jump again until the jump button has been released */
+		} else {
+			PhysicsComp_DoNormalJump(comp);
+			comp->JumpLatched = true;
+		}
 	}
 }
 
@@ -794,6 +809,7 @@ void PhysicsComp_DoNormalJump(struct PhysicsComp* comp) {
 	struct HacksComp* hacks = comp->Hacks;
 	if (comp->JumpVel == 0.0f || hacks->MaxJumps <= 0) return;
 
+	comp->JumpedThisTick = true;
 	entity->Velocity.y = comp->JumpVel;
 	if (hacks->Speeding     && hacks->CanSpeed) entity->Velocity.y += comp->JumpVel;
 	if (hacks->HalfSpeeding && hacks->CanSpeed) entity->Velocity.y += comp->JumpVel / 2;
@@ -868,134 +884,223 @@ static void PhysicsComp_MoveNormal(struct PhysicsComp* comp, Vec3 vel, float fac
 	PhysicsComp_Move(comp, drag, gravity, yMul);
 }
 
-/* ClassiCube runs physics on a fixed 20 ticks/second, regardless of render  */
-/* framerate - confirmed by the speedometer math elsewhere in this codebase */
-/* (blocks/sec = blocks/tick * 20). Most of the constants below are taken   */
-/* as-is from a proven CPM/Source-style ClassiCube movement mod. Friction   */
-/* and the assumed tickrate are runtime-tunable (see Commands.c) rather     */
-/* than fixed #defines, since they're the two most commonly retuned knobs. */
-float physics_airstrafeFriction = 8.0f;   /* ground deceleration rate */
-float physics_airstrafeTickrate = 20.0f;  /* ticks/sec assumed by the formulas below - */
-                                           /* NOT the engine's real tick rate, just what */
-                                           /* the accel/friction math scales itself by  */
-float physics_airstrafeStopspeed = 0.10f; /* below this speed, friction floors out - */
-                                           /* stops you actually reaching zero slowly */
-#define AIRSTRAFE_GROUND_SPEED 0.28f   /* max walking speed */
-#define AIRSTRAFE_GROUND_ACCEL 10.0f   /* how fast you reach ground speed */
-#define AIRSTRAFE_AIR_SPEED    0.28f   /* mid-air target max speed */
-#define AIRSTRAFE_AIR_ACCEL    10.0f   /* mid-air turning control */
-#define AIRSTRAFE_AIR_CAP      0.05f   /* mid-air speed GAIN limit per tick - */
-                                        /* this is what makes strafing require */
-                                        /* actual skill instead of doing       */
-                                        /* nothing or feeling unbounded        */
+/*########################################################################################################################*
+*-----------------------------------------------Half-Life style movement--------------------------------------------------*
+*#########################################################################################################################*/
+/* Used by /client airstrafe. This is a port of the player movement code from Valve's Half-Life SDK */
+/*  (pm_shared/pm_shared.c - the same code Xash3D runs): PM_Friction, PM_Accelerate, PM_AirAccelerate, */
+/*  the horizontal part of PM_WalkMove / PM_AirMove, PM_PreventMegaBunnyJumping, and PM_Jump's "don't pogo stick" rule. */
+/* Like the original it works in Half-Life units: 40 units = 1 block (a Half-Life player is 72 units tall and a */
+/*  ClassiCube player 1.8 blocks, and both jump about 1.1 blocks), with speeds in units per second. */
+/* ClassiCube still does the collisions, stepping, gravity and jumping itself. Only the horizontal velocity is changed here. */
+const struct AirstrafeVars physics_airstrafeDefaults = {
+	10.0f,  /* accelerate */
+	10.0f,  /* airaccelerate */
+	4.0f,   /* friction */
+	2.0f,   /* edgefriction */
+	100.0f, /* stopspeed */
+	320.0f, /* maxspeed */
+	0.2f,   /* iceFriction */
+	1.7f,   /* bunnyFactor */
+	20.0f,  /* rate */
+	false,  /* autohop */
+	true    /* swim */
+};
+struct AirstrafeVars physics_airstrafe = {
+	10.0f, 10.0f, 4.0f, 2.0f, 100.0f, 320.0f, 0.2f, 1.7f, 20.0f, false, true
+};
 
-/* Classic Source-engine ground friction (PM_Friction). Ported from the      */
-/* Cwake reference plugin, with its per-frame `delta` replaced by             */
-/* 1/physics_airstrafeTickrate, since this runs once per physics tick here    */
-/* rather than once per rendered frame.                                       */
-static void PhysicsComp_AirstrafeFriction(struct Entity* entity) {
-	float vx = entity->Velocity.x, vz = entity->Velocity.z;
-	float speed = Math_SqrtF(vx * vx + vz * vz);
-	float control, drop, newSpeed;
+#define PM_UNITS_PER_BLOCK 40.0f
+#define PM_TICKS_PER_SEC   20.0f  /* ClassiCube's fixed physics rate (GAME_DEF_TICKS) */
+#define PM_BT_TO_UNITS     (PM_UNITS_PER_BLOCK * PM_TICKS_PER_SEC) /* blocks per tick -> units per second */
+#define PM_CMD_SPEED       400.0f /* cl_forwardspeed / cl_sidespeed: what holding a movement key asks for */
 
-	if (speed < 0.00001f) { entity->Velocity.x = 0.0f; entity->Velocity.z = 0.0f; return; }
+/* Whether there is ground 16 units ahead of the player in the direction they're moving. */
+/* PM_Friction traces 34 units down from there, and applies edgefriction when nothing is hit. */
+static cc_bool PM_GroundAhead(struct Entity* e, float dirX, float dirZ) {
+	int bx = Math_Floor(e->Position.x + dirX * (16.0f / PM_UNITS_PER_BLOCK));
+	int bz = Math_Floor(e->Position.z + dirZ * (16.0f / PM_UNITS_PER_BLOCK));
+	int top    = Math_Floor(e->Position.y - 0.01f);
+	int bottom = Math_Floor(e->Position.y - 34.0f / PM_UNITS_PER_BLOCK);
+	int y;
+	cc_uint8 collide;
 
-	control  = speed < physics_airstrafeStopspeed ? physics_airstrafeStopspeed : speed;
-	drop     = control * physics_airstrafeFriction * (1.0f / physics_airstrafeTickrate);
-	newSpeed = speed - drop;
-	if (newSpeed < 0.0f) newSpeed = 0.0f;
-	newSpeed /= speed;
-
-	entity->Velocity.x *= newSpeed;
-	entity->Velocity.z *= newSpeed;
+	for (y = top; y >= bottom; y--)
+	{
+		collide = Blocks.ExtendedCollide[World_SafeGetBlock(bx, y, bz)];
+		if (collide == COLLIDE_SOLID || collide == COLLIDE_ICE || collide == COLLIDE_SLIPPERY_ICE) return true;
+	}
+	return false;
 }
 
-/* Classic Source-engine ground acceleration (PM_Accelerate). wx/wz is the   */
-/* normalised wish direction; only adds speed up to wishSpeed in that       */
-/* direction, same idea as air-accelerate below but with no per-tick cap.   */
-static void PhysicsComp_AirstrafeAccelerate(struct Entity* entity, float wx, float wz, float wishSpeed, float accel) {
-	float cur = entity->Velocity.x * wx + entity->Velocity.z * wz;
-	float add = wishSpeed - cur;
-	float acc;
-	if (add <= 0.0f) return;
+/* pm_shared.c: PM_Friction. (water friction is left out, ClassiCube has its own water movement) */
+static void PM_Friction(struct Entity* e, float* vx, float* vz, float frametime, float playerFriction) {
+	float speed, friction, control, drop, newspeed;
 
-	acc = accel * wishSpeed * (1.0f / physics_airstrafeTickrate);
-	if (acc > add) acc = add;
+	speed = Math_SqrtF(*vx * *vx + *vz * *vz);
+	if (speed < 0.1f) return; /* too slow */
 
-	entity->Velocity.x += acc * wx;
-	entity->Velocity.z += acc * wz;
+	/* apply ground friction */
+	if (PM_GroundAhead(e, *vx / speed, *vz / speed)) {
+		friction = physics_airstrafe.friction;
+	} else {
+		friction = physics_airstrafe.friction * physics_airstrafe.edgefriction;
+	}
+	friction *= playerFriction;
+
+	/* Bleed off some speed, but if we have less than the bleed threshold, bleed the threshold amount. */
+	control  = speed < physics_airstrafe.stopspeed ? physics_airstrafe.stopspeed : speed;
+	drop     = control * friction * frametime;
+
+	/* scale the velocity */
+	newspeed = speed - drop;
+	if (newspeed < 0.0f) newspeed = 0.0f;
+	newspeed /= speed;
+
+	*vx *= newspeed;
+	*vz *= newspeed;
 }
 
-/* Classic Source-engine air acceleration (PM_AirAccelerate). Same shape as  */
-/* Accelerate above, except the wishSpeed used to work out the accel RATE   */
-/* is clamped to AIRSTRAFE_AIR_CAP first. That clamp is what actually makes */
-/* air-strafing a skill: it limits how much speed any single tick can add,  */
-/* so real speed only builds up over many ticks of well-aimed strafing,     */
-/* rather than being reachable just by holding a direction once.           */
-static void PhysicsComp_AirstrafeAirAccelerate(struct Entity* entity, float wx, float wz, float wishSpeed, float accel) {
-	float capped = wishSpeed > AIRSTRAFE_AIR_CAP ? AIRSTRAFE_AIR_CAP : wishSpeed;
-	float cur = entity->Velocity.x * wx + entity->Velocity.z * wz;
-	float add = capped - cur;
-	float acc;
-	if (add <= 0.0f) return;
+/* pm_shared.c: PM_Accelerate */
+static void PM_Accelerate(float wx, float wz, float wishspeed, float accel, float frametime, float playerFriction, float* vx, float* vz) {
+	float currentspeed, addspeed, accelspeed;
 
-	acc = accel * wishSpeed * (1.0f / physics_airstrafeTickrate);
-	if (acc > add) acc = add;
+	/* See if we are changing direction a bit */
+	currentspeed = *vx * wx + *vz * wz;
+	/* Reduce wishspeed by the amount of veer. */
+	addspeed = wishspeed - currentspeed;
+	/* If not going to add any speed, done. */
+	if (addspeed <= 0.0f) return;
 
-	entity->Velocity.x += acc * wx;
-	entity->Velocity.z += acc * wz;
+	/* Determine amount of acceleration, and cap at addspeed */
+	accelspeed = accel * frametime * wishspeed * playerFriction;
+	if (accelspeed > addspeed) accelspeed = addspeed;
+
+	*vx += accelspeed * wx;
+	*vz += accelspeed * wz;
 }
 
-/* Toggled by /client airstrafespeedo. Shows current horizontal speed in    */
-/* blocks/second, right above the hotbar (MSG_TYPE_BOTTOMRIGHT_1 - same     */
-/* slot the reference plugin's own speedometer uses, confirmed anchored to  */
-/* the hotbar via Screens.c: bottomRight.yOffset = HUDScreen_LayoutHotbar() */
-/* + ...). Rounded to the nearest whole block, unlike the reference         */
-/* plugin's one-decimal display, as asked for.                              */
-cc_bool physics_airstrafeSpeedo = false;
+/* pm_shared.c: PM_AirAccelerate. The 30 units/second cap on wishspd is what limits how fast you can gain speed in the air */
+static void PM_AirAccelerate(float wx, float wz, float wishspeed, float accel, float frametime, float playerFriction, float* vx, float* vz) {
+	float currentspeed, addspeed, accelspeed, wishspd = wishspeed;
 
-/* The engine's REAL tick rate (confirmed fixed via Constants.h's           */
-/* GAME_DEF_TICKS) - deliberately NOT physics_airstrafeTickrate, which only */
-/* rescales the feel of the accel/friction math and would give a misleading */
-/* reading here if it were used to convert to blocks/second instead.        */
-#define AIRSTRAFE_REAL_TICKS_PER_SEC 20.0f
+	/* Cap speed */
+	if (wishspd > 30.0f) wishspd = 30.0f;
+
+	/* Determine veer amount, and see how much to add */
+	currentspeed = *vx * wx + *vz * wz;
+	addspeed     = wishspd - currentspeed;
+	/* If not adding any, done. */
+	if (addspeed <= 0.0f) return;
+
+	/* Determine acceleration speed after acceleration, and cap it */
+	accelspeed = accel * wishspeed * frametime * playerFriction;
+	if (accelspeed > addspeed) accelspeed = addspeed;
+
+	*vx += accelspeed * wx;
+	*vz += accelspeed * wz;
+}
+
+/* pm_shared.c: PM_PreventMegaBunnyJumping. Corrects bunny jumping, where jumping skips ground friction and the */
+/*  ground speed limit. Going faster than maxspeed * 1.7 when you jump gets you cut down to 0.65 of that limit. */
+static void PM_PreventMegaBunnyJumping(float* vx, float* vz, float maxspeed) {
+	float maxscaledspeed, spd, fraction;
+
+	maxscaledspeed = physics_airstrafe.bunnyFactor * maxspeed;
+	if (maxscaledspeed <= 0.0f) return;
+
+	spd = Math_SqrtF(*vx * *vx + *vz * *vz);
+	if (spd <= maxscaledspeed) return;
+
+	fraction = (maxscaledspeed / spd) * 0.65f;
+	*vx *= fraction;
+	*vz *= fraction;
+}
 
 static void PhysicsComp_AirstrafeUpdateSpeedo(struct Entity* entity) {
 	float speed = Math_SqrtF(entity->Velocity.x * entity->Velocity.x + entity->Velocity.z * entity->Velocity.z);
-	int blocksPerSec = (int)(speed * AIRSTRAFE_REAL_TICKS_PER_SEC + 0.5f);
+	int blocksPerSec = (int)(speed * PM_TICKS_PER_SEC + 0.5f);
+	int unitsPerSec  = (int)(speed * PM_BT_TO_UNITS + 0.5f);
 	cc_string msg; char buffer[STRING_SIZE];
 
 	String_InitArray(msg, buffer);
-	String_Format1(&msg, "&bSpeed: %i blocks/s", &blocksPerSec);
+	String_Format2(&msg, "&bSpeed: %i blocks/s (%i u/s)", &blocksPerSec, &unitsPerSec);
 	Chat_AddOf(&msg, MSG_TYPE_BOTTOMRIGHT_1);
 }
 
-/* Replaces the usual ground+air horizontal movement entirely when          */
-/* /client airstrafe is on. Structured to match the reference plugin's own  */
-/* Cwake_Tick exactly, including one subtlety: the ground/air SPEED TARGET  */
-/* is picked from raw onGround, while the friction/accelerate FUNCTION      */
-/* CHOICE uses onGround-and-not-jumping - so on the exact tick you jump,    */
-/* air-accelerate runs but still targets ground speed for that one tick,    */
-/* same as it does in the reference plugin.                                 */
-static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, cc_bool onGround, cc_bool tryingToJump, float gravity, float yMul) {
+/* Toggled by /client airstrafespeedo. Shows horizontal speed above the hotbar, in blocks per second and Half-Life */
+/*  units per second (the number the Half-Life cvars and hud_speedometer style plugins use). */
+cc_bool physics_airstrafeSpeedo = false;
+
+/* Replaces the usual horizontal movement when /client airstrafe is on. Same order as PM_PlayerMove for MOVETYPE_WALK: */
+/*  1) a jump (done by ClassiCube before this) puts you in the air, which skips friction for that tick, and the bunny jump limit applies */
+/*  2) on the ground: friction, then PM_Accelerate.  In the air: PM_AirAccelerate */
+/*  vel = the movement keys, rotated to the way you're facing (what the normal movement code gets too) */
+static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, float speedMul, cc_bool jumpedFromGround, float gravity, float yMul) {
 	struct Entity* entity = comp->Entity;
+	struct AirstrafeVars* cv = &physics_airstrafe;
 	Vec3 noHorDrag;
-	float dist, wx = 0.0f, wz = 0.0f, wishSpeed;
-	cc_bool groundedNotJumping = onGround && !tryingToJump;
+	float vx, vz, wx = 0.0f, wz = 0.0f, inLen, wishspeed = 0.0f, maxspeed, frametime, playerFriction;
+	float yawDelta, ang, stepWx, stepWz;
+	cc_bool onGround;
+	int i, steps;
 
-	if (groundedNotJumping) PhysicsComp_AirstrafeFriction(entity);
+	/* If a jump happened this tick then PM_Jump has set onground to -1 before friction would have run */
+	onGround = entity->OnGround && !jumpedFromGround;
 
-	dist = Math_SqrtF(vel.x * vel.x + vel.z * vel.z);
-	if (dist > 0.00001f) {
-		wx = vel.x / dist; wz = vel.z / dist;
-		wishSpeed = onGround ? AIRSTRAFE_GROUND_SPEED : AIRSTRAFE_AIR_SPEED;
+	/* server/user speed settings (speed hacks, slow blocks) scale the max speed, so they still work */
+	if (speedMul < 0.0f)  speedMul = 0.0f;
+	if (speedMul > 10.0f) speedMul = 10.0f;
+	maxspeed = cv->maxspeed * speedMul;
 
-		if (groundedNotJumping) {
-			PhysicsComp_AirstrafeAccelerate(entity, wx, wz, wishSpeed, AIRSTRAFE_GROUND_ACCEL);
+	vx = entity->Velocity.x * PM_BT_TO_UNITS;
+	vz = entity->Velocity.z * PM_BT_TO_UNITS;
+
+	/* Movement keys -> wish direction/speed. Holding a key asks for cl_forwardspeed (400), which is clamped to maxspeed, */
+	/*  so diagonals are no faster (PM_CheckParameters + PM_WalkMove/PM_AirMove). 0.98 is the input scale the normal movement code applies. */
+	inLen = Math_SqrtF(vel.x * vel.x + vel.z * vel.z);
+	if (inLen > 0.00001f) {
+		wx = vel.x / inLen; wz = vel.z / inLen;
+		wishspeed = (inLen / 0.98f) * PM_CMD_SPEED * speedMul;
+		if (wishspeed > maxspeed) wishspeed = maxspeed;
+	}
+
+	if (jumpedFromGround) PM_PreventMegaBunnyJumping(&vx, &vz, maxspeed);
+
+	/* Half-Life runs this once per rendered frame. rate = how many times per second, 20 = once per game tick. */
+	/* (higher rates run it several times per tick, which is how high fps gives more air strafing speed in Half-Life) */
+	if (cv->rate < 1.0f) cv->rate = 1.0f;
+	frametime      = 1.0f / cv->rate;
+	steps          = (int)(cv->rate / PM_TICKS_PER_SEC + 0.5f);
+	if (steps < 1) steps = 1;
+	playerFriction = PhysicsComp_OnIce(entity) ? cv->iceFriction : 1.0f;
+
+	/* Your view turns between Half-Life frames, so with several steps per tick the wish direction is turned a bit more each step, */
+	/* from where you were facing last tick to where you face now. That turning is what makes more fps = more air strafing speed. */
+	yawDelta = entity->Yaw - comp->LastYaw;
+	while (yawDelta >  180.0f) yawDelta -= 360.0f;
+	while (yawDelta < -180.0f) yawDelta += 360.0f;
+
+	for (i = 0; i < steps; i++)
+	{
+		if (steps > 1 && wishspeed > 0.0f) {
+			ang = -yawDelta * (float)(steps - 1 - i) / (float)steps * MATH_DEG2RAD;
+			stepWx = wx * Math_CosF(ang) - wz * Math_SinF(ang);
+			stepWz = wz * Math_CosF(ang) + wx * Math_SinF(ang);
+		} else { stepWx = wx; stepWz = wz; }
+
+		if (onGround) {
+			PM_Friction(entity, &vx, &vz, frametime, playerFriction);
+			PM_Accelerate(stepWx, stepWz, wishspeed, cv->accelerate, frametime, playerFriction, &vx, &vz);
+			/* PM_WalkMove: stop completely if barely moving */
+			if (vx * vx + vz * vz < 1.0f) { vx = 0.0f; vz = 0.0f; }
 		} else {
-			PhysicsComp_AirstrafeAirAccelerate(entity, wx, wz, wishSpeed, AIRSTRAFE_AIR_ACCEL);
+			PM_AirAccelerate(stepWx, stepWz, wishspeed, cv->airaccelerate, frametime, playerFriction, &vx, &vz);
 		}
 	}
+
+	entity->Velocity.x = vx / PM_BT_TO_UNITS;
+	entity->Velocity.z = vz / PM_BT_TO_UNITS;
 
 	if (physics_airstrafeSpeedo) PhysicsComp_AirstrafeUpdateSpeedo(entity);
 
@@ -1003,6 +1108,166 @@ static void PhysicsComp_MoveAirstrafe(struct PhysicsComp* comp, Vec3 vel, cc_boo
 	/* Vertical drag/gravity handling is untouched, so fall/jump arcs are normal.*/
 	noHorDrag.x = 1.0f; noHorDrag.y = comp->drag.y; noHorDrag.z = 1.0f;
 	PhysicsComp_Move(comp, noHorDrag, gravity, yMul);
+}
+
+/*########################################################################################################################*
+*---------------------------------------------------Half-Life style swimming----------------------------------------------*
+*#########################################################################################################################*/
+/* 1 = water, 2 = lava, 0 = not liquid. Checks the liquid block that a point is inside of. */
+static cc_uint8 PM_LiquidAt(float x, float y, float z) {
+	int bx = Math_Floor(x), by = Math_Floor(y), bz = Math_Floor(z);
+	BlockID block = World_SafeGetBlock(bx, by, bz);
+	cc_uint8 collide = Blocks.ExtendedCollide[block];
+
+	if (collide != COLLIDE_WATER && collide != COLLIDE_LAVA && collide != COLLIDE_LIQUID) return 0;
+	if (y - by >= Blocks.MaxBB[block].y) return 0; /* above the surface of the liquid */
+	return collide == COLLIDE_LAVA ? 2 : 1;
+}
+
+/* pm_shared.c: PM_CheckWater. Checks 3 points: the feet, the middle of the body ("waist") and the eyes. */
+/*  0 = out of the liquid, 1 = feet in, 2 = waist in (swimming), 3 = eyes in */
+static int PM_WaterLevel(struct Entity* e, cc_uint8* liquidType) {
+	float feetY = e->Position.y;
+	cc_uint8 type = PM_LiquidAt(e->Position.x, feetY + 1.0f / PM_UNITS_PER_BLOCK, e->Position.z);
+	int level;
+
+	if (!type) return 0;
+	if (liquidType) *liquidType = type;
+
+	level = 1;
+	if (PM_LiquidAt(e->Position.x, feetY + 0.9f, e->Position.z)) {
+		level = 2;
+		if (PM_LiquidAt(e->Position.x, Entity_GetEyePosition(e).y, e->Position.z)) level = 3;
+	}
+	return level;
+}
+
+static cc_bool PM_SolidAt(float x, float y, float z) {
+	cc_uint8 collide = Blocks.ExtendedCollide[World_SafeGetBlock(Math_Floor(x), Math_Floor(y), Math_Floor(z))];
+	return collide == COLLIDE_SOLID || collide == COLLIDE_ICE || collide == COLLIDE_SLIPPERY_ICE;
+}
+
+/* pm_shared.c: PM_CheckWaterJump. When swimming at waist depth, and pushing towards a ledge that you could stand on */
+/*  (solid at waist height, open at head height), you hop out of the water onto it. */
+static cc_bool PM_CheckWaterJump(struct Entity* e, float flatFx, float flatFz, float vx, float vz, float vy) {
+	float px, pz;
+
+	/* Don't hop out if we just jumped in */
+	if (vy < -180.0f) return false;
+	/* Are we backing into water from steps or something? If so, don't pop forward */
+	if ((vx * flatFx + vz * flatFz) < 0.0f) return false;
+
+	px = e->Position.x + flatFx * (24.0f / PM_UNITS_PER_BLOCK);
+	pz = e->Position.z + flatFz * (24.0f / PM_UNITS_PER_BLOCK);
+
+	if (!PM_SolidAt(px, e->Position.y + 0.9f, pz)) return false; /* solid at waist height */
+	if (PM_SolidAt(px, e->Position.y + 1.8f, pz))  return false; /* open at head height */
+	return true;
+}
+
+/* pm_shared.c: PM_WaterMove (+ the water cases of PM_Jump and PM_PlayerMove). You swim in the direction you are looking, */
+/*  so looking up while moving forward takes you up. Water friction is sv_friction, and with no keys held you slowly sink. */
+static void PhysicsComp_MoveHLWater(struct PhysicsComp* comp, Vec3 vel, float speedMul, int waterLevel, cc_uint8 liquidType, float yMul) {
+	struct Entity* entity = comp->Entity;
+	struct AirstrafeVars* cv = &physics_airstrafe;
+	Vec3 noDrag, fwd;
+	float yaw = entity->Yaw * MATH_DEG2RAD, pitch = entity->Pitch * MATH_DEG2RAD;
+	float flatFx = Math_SinF(yaw), flatFz = -Math_CosF(yaw), rightX = Math_CosF(yaw), rightZ = Math_SinF(yaw);
+	float fmove, smove, spd, maxspeed, wishspeed, wishX, wishY, wishZ, wdX = 0, wdY = 0, wdZ = 0;
+	float vx, vy, vz, speed, newspeed = 0.0f, addspeed, accelspeed, frametime;
+	int i, steps;
+
+	if (speedMul < 0.0f)  speedMul = 0.0f;
+	if (speedMul > 10.0f) speedMul = 10.0f;
+	maxspeed = cv->maxspeed * speedMul;
+
+	vx = entity->Velocity.x * PM_BT_TO_UNITS;
+	vy = entity->Velocity.y * PM_BT_TO_UNITS;
+	vz = entity->Velocity.z * PM_BT_TO_UNITS;
+
+	/* Hopping out of the water onto a ledge. There's no gravity, no water friction, and you are pushed into the ledge, */
+	/*  until you're out of the water (PM_WaterJump) */
+	if (comp->WaterJumpTicks > 0) {
+		comp->WaterJumpTicks--;
+		vx = comp->WaterJumpDirX * 50.0f;
+		vz = comp->WaterJumpDirZ * 50.0f;
+		entity->Velocity.x = vx / PM_BT_TO_UNITS;
+		entity->Velocity.z = vz / PM_BT_TO_UNITS;
+		/* upward speed is left alone (PM_WaterJump only sets the horizontal velocity), and there's no gravity until you are out */
+		noDrag.x = 1.0f; noDrag.y = 1.0f; noDrag.z = 1.0f;
+		PhysicsComp_Move(comp, noDrag, 0.0f, yMul);
+		return;
+	}
+
+	if (waterLevel == 2 && PM_CheckWaterJump(entity, flatFx, flatFz, vx, vz, vy)) {
+		comp->WaterJumpTicks = 40; /* 2000 ms */
+		comp->WaterJumpDirX  = flatFx;
+		comp->WaterJumpDirZ  = flatFz;
+		vy = 225.0f;
+	}
+
+	/* PM_Jump, in water: just set the upward speed (not accumulating). Lava is slower than water */
+	if (comp->Jumping) vy = (liquidType == 2) ? 50.0f : 100.0f;
+
+	/* The movement keys, as forward/side move (cl_forwardspeed 400), scaled down together if over maxspeed (PM_CheckParameters) */
+	fmove = (vel.x * flatFx + vel.z * flatFz) / 0.98f * PM_CMD_SPEED * speedMul;
+	smove = (vel.x * rightX + vel.z * rightZ) / 0.98f * PM_CMD_SPEED * speedMul;
+	spd   = Math_SqrtF(fmove * fmove + smove * smove);
+	if (spd > maxspeed && spd != 0.0f) { fmove *= maxspeed / spd; smove *= maxspeed / spd; }
+
+	/* wishvel = forward * fmove + right * smove. forward includes where you're looking up/down */
+	fwd   = Vec3_GetDirVector(yaw, pitch); /* the way the player is looking, including up/down */
+	wishX = fwd.x * fmove + rightX * smove;
+	wishY = fwd.y * fmove;
+	wishZ = fwd.z * fmove + rightZ * smove;
+
+	/* Sinking after no player input */
+	if (fmove == 0.0f && smove == 0.0f) wishY -= 60.0f;
+
+	wishspeed = Math_SqrtF(wishX * wishX + wishY * wishY + wishZ * wishZ);
+	if (wishspeed > 0.0f) { wdX = wishX / wishspeed; wdY = wishY / wishspeed; wdZ = wishZ / wishspeed; }
+
+	/* Cap speed, then slow us down a bit */
+	if (wishspeed > maxspeed) wishspeed = maxspeed;
+	wishspeed *= 0.8f;
+
+	if (cv->rate < 1.0f) cv->rate = 1.0f;
+	frametime = 1.0f / cv->rate;
+	steps = (int)(cv->rate / PM_TICKS_PER_SEC + 0.5f);
+	if (steps < 1) steps = 1;
+
+	for (i = 0; i < steps; i++)
+	{
+		/* Water friction */
+		speed = Math_SqrtF(vx * vx + vy * vy + vz * vz);
+		if (speed > 0.0f) {
+			newspeed = speed - frametime * speed * cv->friction;
+			if (newspeed < 0.0f) newspeed = 0.0f;
+			vx *= newspeed / speed; vy *= newspeed / speed; vz *= newspeed / speed;
+		} else {
+			newspeed = 0.0f;
+		}
+
+		/* Water acceleration */
+		if (wishspeed >= 0.1f) {
+			addspeed = wishspeed - newspeed;
+			if (addspeed > 0.0f) {
+				accelspeed = cv->accelerate * wishspeed * frametime;
+				if (accelspeed > addspeed) accelspeed = addspeed;
+				vx += accelspeed * wdX; vy += accelspeed * wdY; vz += accelspeed * wdZ;
+			}
+		}
+	}
+
+	entity->Velocity.x = vx / PM_BT_TO_UNITS;
+	entity->Velocity.y = vy / PM_BT_TO_UNITS;
+	entity->Velocity.z = vz / PM_BT_TO_UNITS;
+
+	if (physics_airstrafeSpeedo) PhysicsComp_AirstrafeUpdateSpeedo(entity);
+
+	/* no gravity while swimming (PM_InWater), and no ClassiCube water drag */
+	noDrag.x = 1.0f; noDrag.y = 1.0f; noDrag.z = 1.0f;
+	PhysicsComp_Move(comp, noDrag, 0.0f, yMul);
 }
 
 static float PhysicsComp_LowestModifier(struct PhysicsComp* comp, struct AABB* bounds, cc_bool checkSolid) {
@@ -1145,7 +1410,9 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	struct HacksComp* hacks = comp->Hacks;
 	float baseSpeed, verSpeed, horSpeed;
 	float factor, gravity;
-	cc_bool womSpeedBoost;
+	cc_bool womSpeedBoost, hlSwim;
+	int waterLevel = 0;
+	cc_uint8 liquidType = 1;
 
 	if (hacks->Noclip) entity->OnGround = false;
 	baseSpeed = PhysicsComp_GetBaseSpeed(comp);
@@ -1165,10 +1432,23 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 		else if (comp->MultiJumps > 1) { horSpeed *= 93.0f; verSpeed *= 10.0f; }
 	}
 
-	if (Entity_TouchesAnyWater(entity) && !hacks->Floating) {
+	/* Half-Life swimming (see PhysicsComp_MoveHLWater). Only counts as swimming once the liquid reaches your waist, */
+	/*  with just your feet in it you're still walking, like in Half-Life */
+	hlSwim = physics_airstrafeEnabled && physics_airstrafe.swim && !hacks->Floating;
+	if (hlSwim) {
+		waterLevel = PM_WaterLevel(entity, &liquidType);
+		if (comp->WaterJumpTicks > 0 && waterLevel == 0) comp->WaterJumpTicks = 0;
+		comp->UseLiquidGravity = false;
+	} else {
+		comp->WaterJumpTicks = 0;
+	}
+
+	if (hlSwim && (waterLevel >= 2 || comp->WaterJumpTicks > 0)) {
+		PhysicsComp_MoveHLWater(comp, vel, horSpeed, waterLevel, liquidType, verSpeed);
+	} else if (!hlSwim && Entity_TouchesAnyWater(entity) && !hacks->Floating) {
 		Vec3 waterDrag = { 0.8f, 0.8f, 0.8f };
 		PhysicsComp_MoveNormal(comp, vel, 0.02f * horSpeed, waterDrag, LIQUID_GRAVITY, verSpeed);
-	} else if (Entity_TouchesAnyLava(entity) && !hacks->Floating) {
+	} else if (!hlSwim && Entity_TouchesAnyLava(entity) && !hacks->Floating) {
 		Vec3 lavaDrag = { 0.5f, 0.5f, 0.5f };
 		PhysicsComp_MoveNormal(comp, vel, 0.02f * horSpeed, lavaDrag, LIQUID_GRAVITY, verSpeed);
 	} else if (Entity_TouchesAnyRope(entity) && !hacks->Floating) {
@@ -1183,7 +1463,7 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 		if (hacks->Floating) {
 			PhysicsComp_MoveFlying(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		} else if (usedAirstrafe) {
-			PhysicsComp_MoveAirstrafe(comp, vel, entity->OnGround, comp->Jumping, gravity, verSpeed);
+			PhysicsComp_MoveAirstrafe(comp, vel, horSpeed, comp->JumpedThisTick && entity->OnGround, gravity, verSpeed);
 		} else {
 			PhysicsComp_MoveNormal(comp, vel, factor * horSpeed, comp->drag, gravity, verSpeed);
 		}
@@ -1209,6 +1489,8 @@ void PhysicsComp_PhysicsTick(struct PhysicsComp* comp, Vec3 vel) {
 	}
 
 	if (entity->OnGround) comp->MultiJumps = 0;
+	comp->JumpedThisTick = false;
+	comp->LastYaw = entity->Yaw;
 
 	PhysicsComp_CheckPortal(entity);
 }

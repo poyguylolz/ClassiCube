@@ -9,6 +9,7 @@
 #include "World.h"
 #include "Inventory.h"
 #include "Entity.h"
+#include "Camera.h"
 #include "EntityComponents.h"
 #include "Window.h"
 #include "Graphics.h"
@@ -965,12 +966,104 @@ static struct ChatCommand AirAccelCommand = {
 /*########################################################################################################################*
 *----------------------------------------------------AirStrafeCommand-----------------------------------------------------*
 *#########################################################################################################################*/
+/* The movement variables (see EntityComponents.c). They're the Half-Life cvars of the same name, in Half-Life units. */
+struct AirstrafeCvar { const char* name; float* value; const float* def; cc_bool allowZero; const char* desc; };
+
+static const struct AirstrafeCvar airstrafe_cvars[] = {
+	{ "accelerate",    &physics_airstrafe.accelerate,    &physics_airstrafeDefaults.accelerate,    true,  "sv_accelerate, ground acceleration" },
+	{ "airaccelerate", &physics_airstrafe.airaccelerate, &physics_airstrafeDefaults.airaccelerate, true,  "sv_airaccelerate, air acceleration" },
+	{ "friction",      &physics_airstrafe.friction,      &physics_airstrafeDefaults.friction,      true,  "sv_friction, ground friction" },
+	{ "edgefriction",  &physics_airstrafe.edgefriction,  &physics_airstrafeDefaults.edgefriction,  true,  "friction multiplier near ledges" },
+	{ "stopspeed",     &physics_airstrafe.stopspeed,     &physics_airstrafeDefaults.stopspeed,     true,  "sv_stopspeed, friction floor (units/s)" },
+	{ "maxspeed",      &physics_airstrafe.maxspeed,      &physics_airstrafeDefaults.maxspeed,      false, "sv_maxspeed, max ground speed (units/s)" },
+	{ "icefriction",   &physics_airstrafe.iceFriction,   &physics_airstrafeDefaults.iceFriction,   true,  "friction multiplier on ice" },
+	{ "bunnyjump",     &physics_airstrafe.bunnyFactor,   &physics_airstrafeDefaults.bunnyFactor,   true,  "bunny hop speed limit factor, 0 = none" },
+	{ "rate",          &physics_airstrafe.rate,          &physics_airstrafeDefaults.rate,          false, "updates per second (like fps), 20 = per tick" }
+};
+#define AIRSTRAFE_NUM_CVARS (int)(sizeof(airstrafe_cvars) / sizeof(airstrafe_cvars[0]))
+
+static const struct AirstrafeCvar* Airstrafe_FindCvar(const cc_string* name) {
+	int i;
+	for (i = 0; i < AIRSTRAFE_NUM_CVARS; i++)
+	{
+		if (String_CaselessEqualsConst(name, airstrafe_cvars[i].name)) return &airstrafe_cvars[i];
+	}
+	return NULL;
+}
+
+/* Shows (value == NULL), resets ("reset") or sets a movement variable */
+static void Airstrafe_HandleCvar(const struct AirstrafeCvar* cv, const cc_string* value) {
+	cc_string msg; char msgBuffer[STRING_SIZE];
+	float v;
+
+	String_InitArray(msg, msgBuffer);
+	if (!value) {
+		String_Format3(&msg, "&e/client: &f%c is %f2 (default %f2)", cv->name, cv->value, cv->def);
+		Chat_AddOf(&msg, MSG_TYPE_NORMAL);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(value, "reset")) {
+		*cv->value = *cv->def;
+	} else {
+		if (!Convert_ParseFloat(value, &v) || v < 0.0f || (v == 0.0f && !cv->allowZero)) {
+			Chat_AddRaw("&e/client: &cThat isn't a valid number.");
+			return;
+		}
+		*cv->value = v;
+	}
+	String_Format2(&msg, "&e/client: &f%c is now %f2", cv->name, cv->value);
+	Chat_AddOf(&msg, MSG_TYPE_NORMAL);
+}
+
+static cc_bool Airstrafe_ParseOnOff(const cc_string* arg, cc_bool* value) {
+	if (String_CaselessEqualsConst(arg, "on")  || String_CaselessEqualsConst(arg, "true")  || String_CaselessEqualsConst(arg, "1")) { *value = true;  return true; }
+	if (String_CaselessEqualsConst(arg, "off") || String_CaselessEqualsConst(arg, "false") || String_CaselessEqualsConst(arg, "0")) { *value = false; return true; }
+	return false;
+}
+
 static void AirStrafe_Execute(const cc_string* args, int argsCount) {
-	extern cc_bool physics_airstrafeEnabled;
-	physics_airstrafeEnabled = !physics_airstrafeEnabled;
+	const struct AirstrafeCvar* cv;
+	cc_bool on;
+	int i;
+
+	if (!argsCount) {
+		physics_airstrafeEnabled = !physics_airstrafeEnabled;
+	} else if (Airstrafe_ParseOnOff(&args[0], &on)) {
+		physics_airstrafeEnabled = on;
+	} else if (String_CaselessEqualsConst(&args[0], "list")) {
+		for (i = 0; i < AIRSTRAFE_NUM_CVARS; i++) Airstrafe_HandleCvar(&airstrafe_cvars[i], NULL);
+		Chat_AddRaw(physics_airstrafe.autohop ? "&e/client: &fautohop is on" : "&e/client: &fautohop is off");
+		Chat_AddRaw(physics_airstrafe.swim ? "&e/client: &fswim is on" : "&e/client: &fswim is off");
+		return;
+	} else if (String_CaselessEqualsConst(&args[0], "reset")) {
+		physics_airstrafe = physics_airstrafeDefaults;
+		Chat_AddRaw("&e/client: &fAll air-strafe movement variables are back to their Half-Life defaults.");
+		return;
+	} else if (String_CaselessEqualsConst(&args[0], "swim")) {
+		on = !physics_airstrafe.swim;
+		if (argsCount >= 2 && !Airstrafe_ParseOnOff(&args[1], &on)) { Chat_AddRaw("&e/client: &cUsage: &f/client airstrafe swim [on|off]"); return; }
+		physics_airstrafe.swim = on;
+		Chat_AddRaw(on ? "&aHalf-Life swimming &2on&a - swim where you look, sink when idle."
+		               : "&aHalf-Life swimming &coff&a - normal ClassiCube swimming.");
+		return;
+	} else if (String_CaselessEqualsConst(&args[0], "autohop")) {
+		on = !physics_airstrafe.autohop;
+		if (argsCount >= 2 && !Airstrafe_ParseOnOff(&args[1], &on)) { Chat_AddRaw("&e/client: &cUsage: &f/client airstrafe autohop [on|off]"); return; }
+		physics_airstrafe.autohop = on;
+		Chat_AddRaw(on ? "&aAutohop &2on&a - hold jump to keep bunny hopping."
+		               : "&aAutohop &coff&a - like Half-Life, you have to press jump again for every hop.");
+		return;
+	} else if ((cv = Airstrafe_FindCvar(&args[0])) != NULL) {
+		Airstrafe_HandleCvar(cv, argsCount >= 2 ? &args[1] : NULL);
+		return;
+	} else {
+		Chat_AddRaw("&e/client: &cUnknown option. Try &f/client help airstrafe");
+		return;
+	}
 
 	Chat_AddRaw(physics_airstrafeEnabled
-		? "&aAir-strafe movement &2enabled&a - speed is kept in the air, strafe to gain more."
+		? "&aAir-strafe movement &2enabled&a - Half-Life style movement (pm_shared.c)."
 		: "&aAir-strafe movement &cdisabled&a - back to normal movement.");
 }
 
@@ -978,40 +1071,29 @@ static struct ChatCommand AirStrafeCommand = {
 	"AirStrafe", AirStrafe_Execute,
 	0,
 	{
-		"&a/client airstrafe",
-		"&eToggles Source/Quake-style ground+air movement.",
-		"&eSpeed is kept in the air and only grows through strafing.",
-		"&eSee &a/client airstrafefriction &eand &a/client airstrafetickrate &eto retune.",
+		"&a/client airstrafe [on|off|list|reset|autohop|swim|<variable> [value]]",
+		"&eHalf-Life / Xash3D movement, ported from pm_shared.c. Variables:",
+		"&eaccelerate airaccelerate friction edgefriction stopspeed maxspeed",
+		"&eicefriction bunnyjump rate - e.g. &a/client airstrafe airaccelerate 100",
+		"&eautohop: hold jump to hop. swim: Half-Life swimming (on by default).",
 	}
 };
 
 /*########################################################################################################################*
-*------------------------------------------------AirstrafeFrictionCommand-------------------------------------------------*
+*---------------------------------------------Old per-variable airstrafe commands-----------------------------------------*
 *#########################################################################################################################*/
-#define AIRSTRAFE_FRICTION_DEFAULT 8.0f
-
+/* Kept so existing binds keep working, they now just set the matching variable in /client airstrafe */
 static void AirstrafeFriction_Execute(const cc_string* args, int argsCount) {
-	extern float physics_airstrafeFriction;
-	float v;
-
-	if (!argsCount) {
-		Chat_Add1("&e/client: &fAir-strafe ground friction is currently %f2", &physics_airstrafeFriction);
-		return;
-	}
-
-	if (String_CaselessEqualsConst(&args[0], "reset")) {
-		physics_airstrafeFriction = AIRSTRAFE_FRICTION_DEFAULT;
-		Chat_AddRaw("&aAir-strafe ground friction has been reset to its default value.");
-		return;
-	}
-
-	if (!Convert_ParseFloat(&args[0], &v) || v < 0.0f) {
-		Chat_AddRaw("&e/client: &cThat isn't a valid non-negative number.");
-		return;
-	}
-
-	physics_airstrafeFriction = v;
-	Chat_Add1("&e/client: &fAir-strafe ground friction is now %f2", &physics_airstrafeFriction);
+	static const cc_string name = String_FromConst("friction");
+	Airstrafe_HandleCvar(Airstrafe_FindCvar(&name), argsCount ? &args[0] : NULL);
+}
+static void AirstrafeTickrate_Execute(const cc_string* args, int argsCount) {
+	static const cc_string name = String_FromConst("rate");
+	Airstrafe_HandleCvar(Airstrafe_FindCvar(&name), argsCount ? &args[0] : NULL);
+}
+static void AirstrafeStopspeed_Execute(const cc_string* args, int argsCount) {
+	static const cc_string name = String_FromConst("stopspeed");
+	Airstrafe_HandleCvar(Airstrafe_FindCvar(&name), argsCount ? &args[0] : NULL);
 }
 
 static struct ChatCommand AirstrafeFrictionCommand = {
@@ -1019,89 +1101,28 @@ static struct ChatCommand AirstrafeFrictionCommand = {
 	0,
 	{
 		"&a/client airstrafefriction [value/reset]",
-		"&eSets ground deceleration while &a/client airstrafe &eis on.",
-		"&eHigher stops you faster, 0 removes ground friction entirely.",
-		"&eDefault is 8. Run with no arguments to see the current value.",
+		"&eSame as &a/client airstrafe friction&e: sv_friction, ground friction.",
+		"&eDefault is 4 (Half-Life's value).",
 	}
 };
-
-/*########################################################################################################################*
-*------------------------------------------------AirstrafeTickrateCommand-------------------------------------------------*
-*#########################################################################################################################*/
-#define AIRSTRAFE_TICKRATE_DEFAULT 20.0f
-
-static void AirstrafeTickrate_Execute(const cc_string* args, int argsCount) {
-	extern float physics_airstrafeTickrate;
-	float v;
-
-	if (!argsCount) {
-		Chat_Add1("&e/client: &fAir-strafe tickrate is currently %f2", &physics_airstrafeTickrate);
-		return;
-	}
-
-	if (String_CaselessEqualsConst(&args[0], "reset")) {
-		physics_airstrafeTickrate = AIRSTRAFE_TICKRATE_DEFAULT;
-		Chat_AddRaw("&aAir-strafe tickrate has been reset to its default value.");
-		return;
-	}
-
-	if (!Convert_ParseFloat(&args[0], &v) || v <= 0.0f) {
-		Chat_AddRaw("&e/client: &cThat isn't a valid positive number.");
-		return;
-	}
-
-	physics_airstrafeTickrate = v;
-	Chat_Add1("&e/client: &fAir-strafe tickrate is now %f2", &physics_airstrafeTickrate);
-}
-
 static struct ChatCommand AirstrafeTickrateCommand = {
 	"AirstrafeTickrate", AirstrafeTickrate_Execute,
 	0,
 	{
 		"&a/client airstrafetickrate [value/reset]",
-		"&eSets the ticks/sec the friction/accelerate math assumes it's",
-		"&erunning at (NOT the engine's real tickrate, which stays fixed).",
-		"&eHigher = snappier accel/friction per real second. Default is 20.",
+		"&eSame as &a/client airstrafe rate&e: how many times per second the",
+		"&emovement formulas run, like fps in Half-Life. Default 20 = once per tick,",
+		"&ehigher (e.g. 100) gives the extra air speed high fps gives in Half-Life.",
 	}
 };
-
-/*########################################################################################################################*
-*------------------------------------------------AirstrafeStopspeedCommand------------------------------------------------*
-*#########################################################################################################################*/
-#define AIRSTRAFE_STOPSPEED_DEFAULT 0.10f
-
-static void AirstrafeStopspeed_Execute(const cc_string* args, int argsCount) {
-	extern float physics_airstrafeStopspeed;
-	float v;
-
-	if (!argsCount) {
-		Chat_Add1("&e/client: &fAir-strafe stopspeed is currently %f2", &physics_airstrafeStopspeed);
-		return;
-	}
-
-	if (String_CaselessEqualsConst(&args[0], "reset")) {
-		physics_airstrafeStopspeed = AIRSTRAFE_STOPSPEED_DEFAULT;
-		Chat_AddRaw("&aAir-strafe stopspeed has been reset to its default value.");
-		return;
-	}
-
-	if (!Convert_ParseFloat(&args[0], &v) || v < 0.0f) {
-		Chat_AddRaw("&e/client: &cThat isn't a valid non-negative number.");
-		return;
-	}
-
-	physics_airstrafeStopspeed = v;
-	Chat_Add1("&e/client: &fAir-strafe stopspeed is now %f2", &physics_airstrafeStopspeed);
-}
-
 static struct ChatCommand AirstrafeStopspeedCommand = {
 	"AirstrafeStopspeed", AirstrafeStopspeed_Execute,
 	0,
 	{
 		"&a/client airstrafestopspeed [value/reset]",
-		"&eBelow this ground speed, friction stops scaling down with speed",
-		"&eand instead uses this value directly - keeps you from sliding",
-		"&eforever at a crawl. 0 disables the floor. Default is 0.1.",
+		"&eSame as &a/client airstrafe stopspeed&e: sv_stopspeed, in Half-Life",
+		"&eunits per second. Below this speed friction acts like you're going this",
+		"&efast, so you stop quickly. Default is 100.",
 	}
 };
 
@@ -1125,6 +1146,45 @@ static struct ChatCommand AirstrafeSpeedoCommand = {
 		"&eToggles a speed readout above the hotbar, in blocks/second,",
 		"&erounded to the nearest block. Only updates while",
 		"&e&a/client airstrafe &eis also on.",
+	}
+};
+
+/*########################################################################################################################*
+*---------------------------------------------------CameraSmoothingCommand------------------------------------------------*
+*#########################################################################################################################*/
+#define CAMERA_ANTIGRID_DEFAULT 20.0f
+
+static void CameraSmoothing_Execute(const cc_string* args, int argsCount) {
+	float v;
+
+	if (!argsCount) {
+		Chat_Add1("&e/client: &fCamera smoothing is %f2 ms (0 = off)", &Camera.AntiGrid);
+		return;
+	}
+
+	if (String_CaselessEqualsConst(&args[0], "reset")) {
+		Camera.AntiGrid = CAMERA_ANTIGRID_DEFAULT;
+	} else if (String_CaselessEqualsConst(&args[0], "off")) {
+		Camera.AntiGrid = 0.0f;
+	} else if (Convert_ParseFloat(&args[0], &v) && v >= 0.0f && v <= 200.0f) {
+		Camera.AntiGrid = v;
+	} else {
+		Chat_AddRaw("&e/client: &cPlease give a number from 0 to 200, or off/reset.");
+		return;
+	}
+
+	Options_SetInt(OPT_CAMERA_ANTIGRID, (int)(Camera.AntiGrid + 0.5f));
+	Chat_Add1("&e/client: &fCamera smoothing is now %f2 ms", &Camera.AntiGrid);
+}
+
+static struct ChatCommand CameraSmoothingCommand = {
+	"CameraSmoothing", CameraSmoothing_Execute,
+	0,
+	{
+		"&a/client camerasmoothing [milliseconds|off|reset]",
+		"&eHides the visible steps in the view when you turn slowly, mostly at",
+		"&ehigher sensitivities. Only slow movement is smoothed - fast flicks stay",
+		"&einstant. Default 20. Does nothing while the smooth camera option is on.",
 	}
 };
 
@@ -1488,6 +1548,7 @@ static void OnInit(void) {
 	Commands_Register(&WalkAccelCommand);
 	Commands_Register(&AirAccelCommand);
 	Commands_Register(&AirStrafeCommand);
+	Commands_Register(&CameraSmoothingCommand);
 	Commands_Register(&AirstrafeFrictionCommand);
 	Commands_Register(&AirstrafeTickrateCommand);
 	Commands_Register(&AirstrafeStopspeedCommand);

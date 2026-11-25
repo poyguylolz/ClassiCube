@@ -137,6 +137,8 @@ enum CC_ERRORS {
 
 	SSL_ERR_CONTEXT_DEAD = 0xCCDED070UL, /* Server shutdown the SSL context and it must be recreated */
 	PNG_ERR_16BITSAMPLES = 0xCCDED071UL, /* Image uses 16 bit samples, which is unimplemented */
+	PNG_ERR_EMPTY_IMAGE  = 0xCCDED074UL, /* Image has a width or height of 0 */
+	PNG_ERR_DUP_HEADER   = 0xCCDED075UL, /* Image has more than one header chunk */
 	ERR_NO_NETWORKING    = 0xCCDED072UL, /* No working network connection */
 	ERR_NON_WRITABLE_FS  = 0xCCDED073UL, /* No writable filesystem detected */
 };

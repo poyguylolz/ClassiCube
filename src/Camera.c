@@ -24,7 +24,8 @@ static Vec2 cam_rotOffset;
 static cc_bool cam_isForwardThird;
 
 static struct CameraState {
-	float deltaX, deltaY;
+	float deltaX, deltaY;     /* mouse movement since the last frame */
+	float pendingX, pendingY; /* mouse movement that has not been applied to the view yet (see PerspectiveCamera_GetMouseDelta) */
 } states[MAX_LOCAL_PLAYERS];
 
 static void Camera_OnRawMovement(float deltaX, float deltaY, int deviceIndex) {
@@ -76,31 +77,57 @@ static void PerspectiveCamera_GetPickedBlock(struct RayTracer* t) {
 
 #define CAMERA_SENSI_FACTOR (0.0002f / 3.0f * MATH_RAD2DEGseperatefromother)
 
+/* A mouse only reports whole counts, and each count turns the view by a fixed step (e.g. 0.11 degrees at the default */
+/*  sensitivity, 0.38 degrees at 100). When counts arrive unevenly the view moves in visible jumps - the 'grid'. */
+/* To hide that, movement isn't applied all at once. Counts waiting to be applied are kept in 'pending', and every frame */
+/*  a share of them (alpha) is applied. alpha = 1 - e^(-frametime / tau) is always between 0 and 1, so */
+/*  - the view can never overshoot, however long a frame takes (the old smooth camera integrated velocity with */
+/*    a gain above 1 on slow frames, which threw the view way past where the mouse actually went) */
+/*  - every count is eventually applied in full, so the view always ends up exactly where the mouse took it, */
+/*    and the result is the same at any frame rate. */
+#define CAM_ANTIGRID_REF_SPEED 90.0f /* degrees per second at which the anti-grid filter has halved its smoothing */
+
+static float Camera_FilterAlpha(float dt, float tau) {
+	if (tau <= 0.0f) return 1.0f; /* no smoothing, apply everything */
+	if (dt  <= 0.0f) return 0.0f;
+	return 1.0f - (float)Math_Exp2(-1.4426950408889634 * dt / tau);
+}
+
 static Vec2 PerspectiveCamera_GetMouseDelta(float delta) {
 	float sensitivity = CAMERA_SENSI_FACTOR * Camera.Sensitivity;
-	static float speedX, speedY, newSpeedX, newSpeedY, accelX, accelY;
-	int i = Game.CurrentState;
+	struct CameraState* st = &states[Game.CurrentState];
+	float tau, alpha, mag, speed, applyX, applyY;
 	Vec2 v;
 
-	if (Camera.Smooth) {
-		accelX = (states[i].deltaX - speedX) * 35 / Camera.Mass;
-		accelY = (states[i].deltaY - speedY) * 35 / Camera.Mass;
-		newSpeedX = accelX * delta + speedX;
-		newSpeedY = accelY * delta + speedY;
+	st->pendingX += st->deltaX;
+	st->pendingY += st->deltaY;
 
-		/* High acceleration means velocity overshoots the correct position on low FPS, */
-		/* causing wiggling. If newSpeed has opposite sign of speed, set speed to 0 */
-		if (newSpeedX * speedX < 0) speedX = 0;
-		else speedX = newSpeedX;
-		if (newSpeedY * speedY < 0) speedY = 0;
-		else speedY = newSpeedY;
+	if (Camera.Smooth) {
+		/* Mass sets how sluggish the camera is. The time (in seconds) it takes to cover about 63% of a movement. */
+		tau = Camera.Mass / 35.0f;
+	} else if (Camera.AntiGrid > 0.0f) {
+		/* Slow movement is where the steps are visible, so smooth that. Fast movement is passed through almost untouched */
+		/*  so that flicking around stays instant. */
+		mag   = Math_SqrtF(st->pendingX * st->pendingX + st->pendingY * st->pendingY) * sensitivity;
+		speed = delta > 0.0001f ? mag / delta : 0.0f;
+		tau   = (Camera.AntiGrid / 1000.0f) / (1.0f + speed / CAM_ANTIGRID_REF_SPEED);
 	} else {
-		speedX = states[i].deltaX;
-		speedY = states[i].deltaY;
+		tau = 0.0f;
 	}
 
-	v.x = speedX * sensitivity; 
-	v.y = speedY * sensitivity;
+	alpha  = Camera_FilterAlpha(delta, tau);
+	applyX = st->pendingX * alpha;
+	applyY = st->pendingY * alpha;
+
+	/* Don't leave a long tail of tiny movements (under 0.005 degrees, far less than a pixel) */
+	if (Math_AbsF(st->pendingX) * sensitivity < 0.005f) applyX = st->pendingX;
+	if (Math_AbsF(st->pendingY) * sensitivity < 0.005f) applyY = st->pendingY;
+
+	st->pendingX -= applyX;
+	st->pendingY -= applyY;
+
+	v.x = applyX * sensitivity;
+	v.y = applyY * sensitivity;
 	if (Camera.Invert) v.y = -v.y;
 	return v;
 }
@@ -131,6 +158,9 @@ static void PerspectiveCamera_UpdateMouseRotation(struct LocalPlayer* p, float d
 static void PerspectiveCamera_UpdateMouse(struct LocalPlayer* p, float delta) {
 	int i = Game.CurrentState;
 	if (!Gui.InputGrab && Window_Main.Focused) Window_UpdateRawMouse();
+
+	/* movement that was still waiting to be applied shouldn't turn the view after a menu closes */
+	if (Gui.InputGrab) { states[i].pendingX = 0; states[i].pendingY = 0; }
 
 	PerspectiveCamera_UpdateMouseRotation(p, delta);
 	states[i].deltaX = 0; 
@@ -391,6 +421,7 @@ static void OnInit(void) {
 	Camera.Invert      = Options_GetBool(OPT_INVERT_MOUSE, false);
 	Camera.Mass        = Options_GetFloat(OPT_CAMERA_MASS, 1, 100, 20);
 	Camera.Smooth      = Options_GetBool(OPT_CAMERA_SMOOTH, false);
+	Camera.AntiGrid    = Options_GetFloat(OPT_CAMERA_ANTIGRID, 0, 200, 20);
 
 	Camera.DefaultFov  = Options_GetInt(OPT_FIELD_OF_VIEW, 1, 179, 70);
 	Camera.Fov         = Camera.DefaultFov;
