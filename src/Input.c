@@ -14,6 +14,7 @@
 #include "Event.h"
 #include "Window.h"
 #include "Screens.h"
+#include "Gui.h"
 #include "Block.h"
 
 struct _InputState Input;
@@ -211,7 +212,7 @@ const char* Input_DisplayNames[INPUT_COUNT] = {
 	Pad_DisplayNames
 };
 
-void Input_SetPressed(int key) {
+static void Input_SetPressedRaw(int key) {
 	cc_bool wasPressed = Input.Pressed[key];
 	Input.Pressed[key] = true;
 
@@ -226,7 +227,7 @@ void Input_SetPressed(int key) {
 	Pointer_SetPressed(0, true);
 }
 
-void Input_SetReleased(int key) {
+static void Input_SetReleasedRaw(int key) {
 	if (!Input.Pressed[key]) return;
 	Input.Pressed[key] = false;
 
@@ -234,6 +235,126 @@ void Input_SetReleased(int key) {
 	Event_RaiseInput(&InputEvents.Up2, key, true, &NormDevice);
 
 	if (key == CCMOUSE_L) Pointer_SetPressed(0, false);
+}
+
+/*########################################################################################################################*
+*--------------------------------------------------------Input remapping--------------------------------------------------*
+*#########################################################################################################################*/
+/* Every press/release from the keyboard, mouse, wheel and gamepads comes through Input_SetPressed/Input_SetReleased. */
+/* If the input is remapped, it's turned into a press/release of the input it should act as, before anything else sees it. */
+static cc_uint16 remap_to[INPUT_COUNT];        /* what each input acts as, 0 = just itself */
+static cc_uint16 remap_heldAs[INPUT_COUNT];    /* what an input that is currently held was pressed as, so release matches the press */
+static cc_uint8  remap_releaseIn[INPUT_COUNT]; /* ticks until a tapped input (see Input_RemapHoldTicks) is released */
+int Input_RemapHoldTicks = 2;
+static struct ScheduledTask2 remap_task;
+
+#define Input_IsWheel(key) ((key) >= CCWHEEL_UP && (key) <= CCWHEEL_RIGHT)
+
+/* Presses and releases a wheel direction, and scrolls the hotbar if it's up/down. Used when something acts as the wheel. */
+static void Input_StepWheel(int wheel) {
+	if (wheel == CCWHEEL_UP)   Event_RaiseFloat(&InputEvents.Wheel,  1.0f);
+	if (wheel == CCWHEEL_DOWN) Event_RaiseFloat(&InputEvents.Wheel, -1.0f);
+	Input_SetPressedRaw(wheel);
+	Input_SetReleasedRaw(wheel);
+}
+
+void Input_SetPressed(int key) {
+	int to = remap_to[key];
+	/* typing in chat or a menu shouldn't also trigger keyboard remaps (e.g. a letter acting as left click) */
+	if (to && key < CCMOUSE_X1 && Gui.InputGrab && !remap_heldAs[key]) to = 0;
+	if (!to) { Input_SetPressedRaw(key); return; }
+
+	if (Input_IsWheel(to)) {
+		/* one scroll step per press, not one per key repeat */
+		if (!remap_heldAs[key]) Input_StepWheel(to);
+	} else {
+		remap_releaseIn[to] = 0;
+		Input_SetPressedRaw(to);
+	}
+	remap_heldAs[key] = (cc_uint16)to;
+}
+
+void Input_SetReleased(int key) {
+	int to = remap_heldAs[key];
+	if (!to) { Input_SetReleasedRaw(key); return; }
+
+	remap_heldAs[key] = 0;
+	if (Input_IsWheel(to)) return;
+
+	if (Input_IsWheel(key)) {
+		/* a wheel notch is pressed and released at the same instant, but the game only looks at whether */
+		/*  buttons are held once per tick (jumping works that way). So keep it held for a bit */
+		remap_releaseIn[to] = (cc_uint8)(Input_RemapHoldTicks < 1 ? 1 : Input_RemapHoldTicks);
+	} else {
+		Input_SetReleasedRaw(to);
+	}
+}
+
+static cc_bool Input_RemapTick(struct ScheduledTask2* task) {
+	int i;
+	for (i = 1; i < INPUT_COUNT; i++)
+	{
+		if (remap_releaseIn[i] && --remap_releaseIn[i] == 0) Input_SetReleasedRaw(i);
+	}
+	return true;
+}
+
+static void Input_SaveRemaps(void) {
+	cc_string str; char buffer[1024];
+	cc_string key = String_FromConst(OPT_INPUT_REMAP);
+	int i;
+	String_InitArray(str, buffer);
+
+	for (i = 1; i < INPUT_COUNT; i++)
+	{
+		if (!remap_to[i]) continue;
+		if (str.length) String_Append(&str, ',');
+		String_AppendConst(&str, Input_StorageNames[i]);
+		String_Append(&str, '>');
+		String_AppendConst(&str, Input_StorageNames[remap_to[i]]);
+	}
+	Options_SetString(&key, str.length ? &str : &String_Empty);
+}
+
+static void Input_LoadRemaps(void) {
+	cc_string str, entry, rest, from, to;
+	int src, dst;
+
+	if (!Options_UNSAFE_Get(OPT_INPUT_REMAP, &str)) return;
+	while (str.length)
+	{
+		String_UNSAFE_Separate(&str, ',', &entry, &rest);
+		str = rest;
+
+		String_UNSAFE_Separate(&entry, '>', &from, &to);
+		src = Utils_ParseEnum(&from, 0, Input_StorageNames, INPUT_COUNT);
+		dst = Utils_ParseEnum(&to,   0, Input_StorageNames, INPUT_COUNT);
+
+		if (src > 0 && dst > 0 && src != dst && src != CCKEY_ESCAPE && src != CCKEY_ENTER && src != CCKEY_KP_ENTER) {
+			remap_to[src] = (cc_uint16)dst;
+		}
+	}
+	Input_RemapHoldTicks = Options_GetInt(OPT_INPUT_REMAP_HOLD, 1, 20, 2);
+}
+
+cc_bool Input_SetRemap(int from, int to) {
+	if (from <= 0 || from >= INPUT_COUNT || to < 0 || to >= INPUT_COUNT) return false;
+	/* so that you can always get out of a bad remapping */
+	if (from == CCKEY_ESCAPE || from == CCKEY_ENTER || from == CCKEY_KP_ENTER) return false;
+
+	remap_to[from] = (from == to) ? 0 : (cc_uint16)to;
+	Input_SaveRemaps();
+	return true;
+}
+
+int Input_GetRemap(int from) {
+	if (from <= 0 || from >= INPUT_COUNT) return 0;
+	return remap_to[from];
+}
+
+void Input_ClearRemaps(void) {
+	Mem_Set(remap_to, 0, sizeof(remap_to));
+	Input_SaveRemaps();
 }
 
 void Input_Set(int key, int pressed) {
@@ -257,7 +378,8 @@ void Input_Clear(void) {
 	int i;
 	for (i = 0; i < INPUT_COUNT; i++) 
 	{
-		if (Input.Pressed[i]) Input_SetReleased(i);
+		if (Input.Pressed[i]) Input_SetReleasedRaw(i);
+		remap_heldAs[i] = 0; remap_releaseIn[i] = 0;
 	}
 	/* TODO: Properly release instead of just clearing */
 	ClearTouches();
@@ -342,7 +464,10 @@ static void Pointer_SetPressed(int idx, cc_bool pressed) {
 static float scrollingVAcc;
 void Mouse_ScrollVWheel(float delta) {
 	int steps = Utils_AccumulateWheelDelta(&scrollingVAcc, delta);
-	Event_RaiseFloat(&InputEvents.Wheel, delta);
+	/* if scrolling has been bound to something else, it shouldn't also change the selected block */
+	if (!((delta > 0 && remap_to[CCWHEEL_UP]) || (delta < 0 && remap_to[CCWHEEL_DOWN]))) {
+		Event_RaiseFloat(&InputEvents.Wheel, delta);
+	}
 	
 	if (steps > 0) {
 		for (; steps != 0; steps--) 
@@ -647,6 +772,11 @@ static void OnInit(void) {
 	ClearTouches();
 	
 	InputBind_Load(&NormDevice);
+
+	Input_LoadRemaps();
+	remap_task.interval = GAME_DEF_TICKS;
+	remap_task.callback = Input_RemapTick;
+	ScheduledTask2_Add(&remap_task);
 }
 
 static void OnFree(void) {

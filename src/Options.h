@@ -75,6 +75,8 @@ Copyright 2014-2025 ClassiCube | Licensed under BSD-3
 #define OPT_CAMERA_MASS "cameramass"
 #define OPT_CAMERA_SMOOTH "camera-smooth"
 #define OPT_CAMERA_ANTIGRID "camera-antigrid"
+#define OPT_INPUT_REMAP "input-remap"
+#define OPT_INPUT_REMAP_HOLD "input-remap-hold"
 #define OPT_GRAB_CURSOR "win-grab-cursor"
 #define OPT_TOUCH_BUTTONS "gui-touchbuttons"
 #define OPT_TOUCH_HALIGN "gui-touch-halign"

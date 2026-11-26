@@ -91,6 +91,18 @@ void Input_SetPressed(int key);
 void Input_SetReleased(int key);
 /* Calls either Input_SetPressed or Input_SetReleased */
 void Input_Set(int key, int pressed);
+
+/* Input remapping, used by /client bind. Makes one input act as another one: any key, mouse button, mouse wheel */
+/*  direction or gamepad button can be made to act as any other. e.g. WheelDown acting as Space makes scrolling jump. */
+/* Makes 'from' act as 'to'. 'to' = 0 removes the remapping. Returns false if 'from' can't be remapped (Escape and Enter are protected) */
+cc_bool Input_SetRemap(int from, int to);
+/* Returns what 'from' acts as, or 0 if it isn't remapped */
+int Input_GetRemap(int from);
+/* Removes all remappings */
+void Input_ClearRemaps(void);
+/* How many game ticks (1 tick = 50 ms) something activated by a mouse wheel notch is held down for. */
+/* A notch is over instantly, but the game only checks if e.g. jump is held once per tick. */
+extern int Input_RemapHoldTicks;
 void Input_SetNonRepeatable(int key, int pressed);
 /* Resets all input buttons to released state. (Input_SetReleased) */
 void Input_Clear(void);

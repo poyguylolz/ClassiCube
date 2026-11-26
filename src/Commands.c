@@ -10,6 +10,7 @@
 #include "Inventory.h"
 #include "Entity.h"
 #include "Camera.h"
+#include "Input.h"
 #include "EntityComponents.h"
 #include "Window.h"
 #include "Graphics.h"
@@ -1080,6 +1081,35 @@ static struct ChatCommand AirStrafeCommand = {
 };
 
 /*########################################################################################################################*
+*-----------------------------------------------------AutohopCommand-----------------------------------------------------*
+*#########################################################################################################################*/
+static void Autohop_Execute(const cc_string* args, int argsCount) {
+	cc_bool on = !physics_airstrafe.autohop;
+	if (argsCount && !Airstrafe_ParseOnOff(&args[0], &on)) {
+		Chat_AddRaw("&e/client: &cUsage: &f/client autohop [on|off]");
+		return;
+	}
+	physics_airstrafe.autohop = on;
+
+	if (on) {
+		Chat_AddRaw("&aAutohop &2on&a - hold jump and you keep jumping every time you land.");
+	} else {
+		Chat_AddRaw("&aAutohop &coff&a - press jump again for every hop (like Half-Life).");
+	}
+	if (!physics_airstrafeEnabled) Chat_AddRaw("&7(only matters while &f/client airstrafe&7 is on - normal movement already lets you hold jump)");
+}
+
+static struct ChatCommand AutohopCommand = {
+	"Autohop", Autohop_Execute,
+	0,
+	{
+		"&a/client autohop [on|off]",
+		"&eWith air-strafe movement on, lets you hold jump to keep hopping instead of",
+		"&epressing it again after every landing. Same as &a/client airstrafe autohop&e.",
+	}
+};
+
+/*########################################################################################################################*
 *---------------------------------------------Old per-variable airstrafe commands-----------------------------------------*
 *#########################################################################################################################*/
 /* Kept so existing binds keep working, they now just set the matching variable in /client airstrafe */
@@ -1146,6 +1176,143 @@ static struct ChatCommand AirstrafeSpeedoCommand = {
 		"&eToggles a speed readout above the hotbar, in blocks/second,",
 		"&erounded to the nearest block. Only updates while",
 		"&e&a/client airstrafe &eis also on.",
+	}
+};
+
+/*########################################################################################################################*
+*------------------------------------------------------Bind commands------------------------------------------------------*
+*#########################################################################################################################*/
+/* /client bind <input> <acts as>: any key, mouse button or wheel direction can be made to act as any other. */
+static const struct BindAlias { const char* name; int input; } bind_aliases[] = {
+	{ "leftclick", CCMOUSE_L },   { "lclick", CCMOUSE_L },  { "lmb", CCMOUSE_L },  { "mouse1", CCMOUSE_L },
+	{ "rightclick", CCMOUSE_R },  { "rclick", CCMOUSE_R },  { "rmb", CCMOUSE_R },  { "mouse2", CCMOUSE_R },
+	{ "middleclick", CCMOUSE_M }, { "mclick", CCMOUSE_M },  { "mmb", CCMOUSE_M },  { "mouse3", CCMOUSE_M },
+	{ "mouse4", CCMOUSE_X1 },     { "mouse5", CCMOUSE_X2 },
+	{ "wheelup", CCWHEEL_UP },    { "scrollup", CCWHEEL_UP },     { "mwheelup", CCWHEEL_UP },
+	{ "wheeldown", CCWHEEL_DOWN }, { "scrolldown", CCWHEEL_DOWN }, { "mwheeldown", CCWHEEL_DOWN },
+	{ "wheelleft", CCWHEEL_LEFT }, { "wheelright", CCWHEEL_RIGHT },
+	{ "jump", CCKEY_SPACE },      { "shift", CCKEY_LSHIFT },      { "ctrl", CCKEY_LCTRL },  { "alt", CCKEY_LALT }
+};
+
+/* Returns the input with that name, or 0 if there isn't one. Names are the same as in options.txt, plus some shorter ones */
+static int Bind_ParseInput(const cc_string* name) {
+	cc_string tmp; char tmpBuffer[STRING_SIZE];
+	int i, input;
+
+	for (i = 0; i < (int)(sizeof(bind_aliases) / sizeof(bind_aliases[0])); i++)
+	{
+		if (String_CaselessEqualsConst(name, bind_aliases[i].name)) return bind_aliases[i].input;
+	}
+
+	/* a single digit means the number key */
+	if (name->length == 1 && name->buffer[0] >= '0' && name->buffer[0] <= '9') {
+		String_InitArray(tmp, tmpBuffer);
+		String_AppendConst(&tmp, "Number");
+		String_Append(&tmp, name->buffer[0]);
+		return Utils_ParseEnum(&tmp, 0, Input_StorageNames, INPUT_COUNT);
+	}
+	input = Utils_ParseEnum(name, 0, Input_StorageNames, INPUT_COUNT);
+	return input;
+}
+
+static void Bind_List(void) {
+	int i, count = 0;
+	for (i = 1; i < INPUT_COUNT; i++)
+	{
+		if (!Input_GetRemap(i)) continue;
+		Chat_Add2("&e/client: &f%c acts as &a%c", Input_StorageNames[i], Input_StorageNames[Input_GetRemap(i)]);
+		count++;
+	}
+	if (!count) Chat_AddRaw("&e/client: &fNothing is bound. Try &a/client bind WheelDown Space");
+}
+
+static void Bind_Execute(const cc_string* args, int argsCount) {
+	int from, to;
+
+	if (!argsCount || String_CaselessEqualsConst(&args[0], "list")) { Bind_List(); return; }
+	if (String_CaselessEqualsConst(&args[0], "clear")) {
+		Input_ClearRemaps();
+		Chat_AddRaw("&e/client: &fAll bindings removed.");
+		return;
+	}
+
+	from = Bind_ParseInput(&args[0]);
+	if (!from) { Chat_Add1("&e/client: &cI don't know an input called '&f%s&c'.", &args[0]); return; }
+
+	if (argsCount == 1) {
+		to = Input_GetRemap(from);
+		if (to) Chat_Add2("&e/client: &f%c acts as &a%c", Input_StorageNames[from], Input_StorageNames[to]);
+		else    Chat_Add1("&e/client: &f%c isn't bound.", Input_StorageNames[from]);
+		return;
+	}
+
+	to = Bind_ParseInput(&args[1]);
+	if (!to) { Chat_Add1("&e/client: &cI don't know an input called '&f%s&c'.", &args[1]); return; }
+	if (from == to) { Chat_AddRaw("&e/client: &cThat would bind it to itself."); return; }
+
+	if (!Input_SetRemap(from, to)) {
+		Chat_AddRaw("&e/client: &cThat input can't be bound (Escape and Enter are always left alone).");
+		return;
+	}
+	Chat_Add2("&e/client: &f%c now acts as &a%c", Input_StorageNames[from], Input_StorageNames[to]);
+	if (from < CCMOUSE_X1) Chat_AddRaw("&7(keyboard binds are ignored while a menu or chat is open, so typing still works)");
+}
+
+static void Unbind_Execute(const cc_string* args, int argsCount) {
+	int from;
+	if (!argsCount) { Chat_AddRaw("&e/client: &cUsage: &f/client unbind <input>   (or &f/client bind clear&c)"); return; }
+
+	from = Bind_ParseInput(&args[0]);
+	if (!from) { Chat_Add1("&e/client: &cI don't know an input called '&f%s&c'.", &args[0]); return; }
+
+	Input_SetRemap(from, 0);
+	Chat_Add1("&e/client: &f%c is back to normal.", Input_StorageNames[from]);
+}
+
+static void BindHold_Execute(const cc_string* args, int argsCount) {
+	int ms, ticks;
+
+	if (argsCount) {
+		if (!Convert_ParseInt(&args[0], &ms) || ms < 1 || ms > 1000) {
+			Chat_AddRaw("&e/client: &cPlease give a number of milliseconds from 1 to 1000.");
+			return;
+		}
+		ticks = (ms + 49) / 50; /* the game checks buttons once per tick of 50 ms */
+		if (ticks < 1) ticks = 1;
+		if (ticks > 20) ticks = 20;
+		Input_RemapHoldTicks = ticks;
+		Options_SetInt(OPT_INPUT_REMAP_HOLD, ticks);
+	}
+	ms = Input_RemapHoldTicks * 50;
+	Chat_Add1("&e/client: &fMouse wheel binds hold their button for about %i ms per scroll.", &ms);
+}
+
+static struct ChatCommand BindCommand = {
+	"Bind", Bind_Execute,
+	0,
+	{
+		"&a/client bind <input> <acts as>   &e(or: list, clear, <input> to check one)",
+		"&eMakes an input act as another, e.g. &a/client bind wheeldown space &emakes",
+		"&escrolling down jump, &a/client bind x leftclick &emakes X click. Any key, leftclick/",
+		"&erightclick/middleclick/mouse4/mouse5, wheelup/wheeldown work for both sides.",
+		"&eThe input you bind stops doing its old job. Escape/Enter can't be bound.",
+	}
+};
+static struct ChatCommand UnbindCommand = {
+	"Unbind", Unbind_Execute,
+	0,
+	{
+		"&a/client unbind <input>",
+		"&eStops an input acting as something else. &a/client bind clear &eremoves all.",
+	}
+};
+static struct ChatCommand BindHoldCommand = {
+	"BindHold", BindHold_Execute,
+	0,
+	{
+		"&a/client bindhold [milliseconds]",
+		"&eA mouse wheel scroll is over instantly, so anything it's bound to (like jump)",
+		"&eis held for a moment, otherwise the game would miss it. Default 100 ms.",
 	}
 };
 
@@ -1549,6 +1716,10 @@ static void OnInit(void) {
 	Commands_Register(&AirAccelCommand);
 	Commands_Register(&AirStrafeCommand);
 	Commands_Register(&CameraSmoothingCommand);
+	Commands_Register(&AutohopCommand);
+	Commands_Register(&BindCommand);
+	Commands_Register(&UnbindCommand);
+	Commands_Register(&BindHoldCommand);
 	Commands_Register(&AirstrafeFrictionCommand);
 	Commands_Register(&AirstrafeTickrateCommand);
 	Commands_Register(&AirstrafeStopspeedCommand);
